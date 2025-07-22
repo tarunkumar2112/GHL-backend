@@ -1,7 +1,11 @@
 require('dotenv').config();
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  connectionString: process.env.NEON_DB_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
 const {
   CLIENT_ID,
@@ -10,27 +14,38 @@ const {
   TOKEN_ENDPOINT
 } = process.env;
 
-const tokenFile = path.join(__dirname, 'tokens.json');
-
-// Read saved token (if exists)
-function getStoredTokens() {
-  if (fs.existsSync(tokenFile)) {
-    return JSON.parse(fs.readFileSync(tokenFile, 'utf-8'));
+// Save new tokens to Neon
+async function saveTokensToDB(data) {
+  const { access_token, refresh_token, expires_in, user_id, location_id } = data;
+  try {
+    await pool.query(
+      `INSERT INTO tokens (access_token, refresh_token, expires_in, user_id, location_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [access_token, refresh_token, expires_in, user_id, location_id]
+    );
+    console.log('✅ Tokens saved to Neon DB');
+  } catch (err) {
+    console.error('❌ DB Save Error:', err.message);
   }
-  return null;
 }
 
-// Save new tokens
-function saveTokens(data) {
-  const withTime = { ...data, fetched_at: new Date().toISOString() };
-  fs.writeFileSync(tokenFile, JSON.stringify(withTime, null, 2));
-  console.log("✅ Tokens saved/updated.");
+// Get the latest token
+async function getStoredTokens() {
+  try {
+    const res = await pool.query(
+      'SELECT * FROM tokens ORDER BY created_at DESC LIMIT 1'
+    );
+    return res.rows[0];
+  } catch (err) {
+    console.error('❌ DB Read Error:', err.message);
+    return null;
+  }
 }
 
-// Refresh token function
+// Refresh access token
 async function refreshAccessToken() {
   try {
-    const stored = getStoredTokens();
+    const stored = await getStoredTokens();
     const currentRefreshToken = stored?.refresh_token || ENV_REFRESH_TOKEN;
 
     const payload = new URLSearchParams({
@@ -56,12 +71,43 @@ async function refreshAccessToken() {
       location_id: response.data.locationId
     };
 
-    saveTokens(tokens);
+    await saveTokensToDB(tokens);
     console.log("🔐 Access Token:", tokens.access_token);
 
   } catch (err) {
-    console.error("❌ Error refreshing access token:", err.response?.data || err.message);
+    console.error("❌ Token Refresh Error:", err.response?.data || err.message);
   }
 }
 
-refreshAccessToken();
+// Return valid token: refresh if expired
+async function getValidAccessToken() {
+  const tokens = await getStoredTokens();
+  if (!tokens) {
+    console.log("⚠️ No tokens in DB, refreshing...");
+    await refreshAccessToken();
+    return (await getStoredTokens()).access_token;
+  }
+
+  const fetchedTime = new Date(tokens.created_at).getTime();
+  const expiresInMs = tokens.expires_in * 1000;
+  const now = Date.now();
+
+  if (now - fetchedTime > expiresInMs - 60000) {
+    console.log("🔁 Token expired or near expiry. Refreshing...");
+    await refreshAccessToken();
+    return (await getStoredTokens()).access_token;
+  }
+
+  return tokens.access_token;
+}
+
+// CLI support
+if (require.main === module) {
+  refreshAccessToken();
+}
+
+module.exports = {
+  refreshAccessToken,
+  getStoredTokens,
+  getValidAccessToken
+};

@@ -1,0 +1,23 @@
+<script>
+  (async () => {
+    try {
+      const res = await fetch("/.netlify/functions/createContact", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          firstName: "Tarun",
+          lastName: "Kumar",
+          email: "tarunkumr34523@example.com",
+          phone: "+91994639999889"
+        })
+      });
+
+      const data = await res.json();
+      console.log("📥 Contact Created:", data);
+    } catch (error) {
+      console.error("❌ Error creating contact:", error);
+    }
+  })();
+</script>
