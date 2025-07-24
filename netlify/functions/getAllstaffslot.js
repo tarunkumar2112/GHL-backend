@@ -1,7 +1,7 @@
 const axios = require('axios');
-const { getValidAccessToken } = require('../../token'); // Token with Neon support
+const { getValidAccessToken } = require('../../token');
 
-exports.handler = async function () {
+exports.handler = async function (event) {
   try {
     const accessToken = await getValidAccessToken();
 
@@ -16,14 +16,30 @@ exports.handler = async function () {
       };
     }
 
-    // 🟡 Calendar ID (hardcoded for now)
-    const calendarId = '1g7WSCXH70nWZ9r8vw2L';
+    const {
+      serviceId,
+      startDate,
+      endDate,
+      userId
+    } = event.queryStringParameters;
 
-    // 🕓 Time range (timestamp)
-    const startDate = 1753228800000;
-    const endDate = 1753315199999;
+    // ✅ Validate required parameters
+    if (!serviceId || !startDate || !endDate || !userId) {
+      return {
+        statusCode: 400,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          error: 'Missing required parameters: serviceId, startDate, endDate, and userId are all required.'
+        })
+      };
+    }
 
-    const url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${startDate}&endDate=${endDate}`;
+    const timezone = 'America/Denver'; // Mountain Time (UTC -7)
+
+    const url = `https://services.leadconnectorhq.com/calendars/${serviceId}/free-slots?startDate=${startDate}&endDate=${endDate}&userId=${userId}&timezone=${timezone}`;
 
     const config = {
       method: 'get',
@@ -46,14 +62,14 @@ exports.handler = async function () {
     };
 
   } catch (err) {
-    console.error("❌ Error fetching staff slots:", err.response?.data || err.message);
+    console.error("❌ Error fetching free slots:", err.response?.data || err.message);
     return {
       statusCode: 500,
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ error: 'Failed to fetch staff slots' })
+      body: JSON.stringify({ error: 'Failed to fetch free slots' })
     };
   }
 };
