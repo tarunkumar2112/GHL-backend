@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { getValidAccessToken } = require('../../token'); // Auto-refresh & Neon friendly
 
-exports.handler = async function () {
+exports.handler = async function (event) {
   try {
     const accessToken = await getValidAccessToken();
 
@@ -16,7 +16,18 @@ exports.handler = async function () {
       };
     }
 
-    const userId = 'ckJnzUv9EJwk5J1BS3OE'; // ✅ Hardcoded staff userId
+    const userId = event.queryStringParameters?.id;
+
+    if (!userId) {
+      return {
+        statusCode: 400,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ error: 'Missing userId in query string (?id=...)' })
+      };
+    }
 
     const config = {
       method: 'get',
