@@ -1,9 +1,10 @@
 const axios = require('axios');
-const { getValidAccessToken } = require('../../token');
+const { getStoredTokens } = require('../../token');
 
 exports.handler = async function (event) {
   try {
-    const accessToken = await getValidAccessToken();
+    const tokens = await getStoredTokens();
+    const accessToken = tokens?.access_token;
 
     if (!accessToken) {
       return {
@@ -17,14 +18,14 @@ exports.handler = async function (event) {
     }
 
     const {
-      serviceId,
+      calendarId,
       startDate,
       endDate,
       userId
     } = event.queryStringParameters;
 
-    // ✅ Validate required parameters
-    if (!serviceId || !startDate || !endDate || !userId) {
+    // ✅ Required parameters check
+    if (!calendarId || !startDate || !endDate) {
       return {
         statusCode: 400,
         headers: {
@@ -32,18 +33,27 @@ exports.handler = async function (event) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          error: 'Missing required parameters: serviceId, startDate, endDate, and userId are all required.'
+          error: 'Missing required query parameters: calendarId, startDate, endDate.'
         })
       };
     }
 
-    const timezone = 'America/Denver'; // Mountain Time (UTC -7)
+    // Build the URL with optional userId
+    const baseUrl = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots`;
+    const params = new URLSearchParams({
+      startDate,
+      endDate
+    });
 
-    const url = `https://services.leadconnectorhq.com/calendars/${serviceId}/free-slots?startDate=${startDate}&endDate=${endDate}&userId=${userId}&timezone=${timezone}`;
+    if (userId) {
+      params.append('userId', userId);
+    }
+
+    const fullUrl = `${baseUrl}?${params.toString()}`;
 
     const config = {
       method: 'get',
-      url,
+      url: fullUrl,
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Version: '2021-04-15'
@@ -51,6 +61,21 @@ exports.handler = async function (event) {
     };
 
     const response = await axios(config);
+    const slotsData = response.data;
+
+    // 🕒 Format to Mountain Time
+    const formattedSlots = {};
+    Object.entries(slotsData).forEach(([date, value]) => {
+      if (date === 'traceId') return;
+      formattedSlots[date] = value.slots.map(slot =>
+        new Date(slot).toLocaleString('en-US', {
+          timeZone: 'America/Denver',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+      );
+    });
 
     return {
       statusCode: 200,
@@ -58,18 +83,18 @@ exports.handler = async function (event) {
         'Access-Control-Allow-Origin': '*',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(response.data)
+      body: JSON.stringify({ calendarId, formattedSlots })
     };
 
   } catch (err) {
-    console.error("❌ Error fetching free slots:", err.response?.data || err.message);
+    console.error('❌ Error fetching slots:', err.response?.data || err.message);
     return {
       statusCode: 500,
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ error: 'Failed to fetch free slots' })
+      body: JSON.stringify({ error: 'Failed to fetch staff slots' })
     };
   }
 };
