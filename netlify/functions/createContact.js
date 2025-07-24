@@ -31,7 +31,7 @@ exports.handler = async function (event) {
       };
     }
 
-    const locationId = 've9EPM428h8vShlRW1KT';
+    const locationId = '7LYI93XFo8j4nZfswlaz';
 
     const body = {
       firstName,
