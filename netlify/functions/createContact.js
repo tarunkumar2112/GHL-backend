@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { getStoredTokens } = require('../../token'); // Update path if needed
+const { getStoredTokens } = require('../../token');
 
 exports.handler = async function (event) {
   try {
@@ -17,10 +17,9 @@ exports.handler = async function (event) {
       };
     }
 
-    const data = JSON.parse(event.body || '{}');
-    const { firstName, lastName, email, phone, notes } = data;
+    const params = event.queryStringParameters;
+    const { firstName, lastName, email, phone, notes } = params;
 
-    // ✅ Required fields check
     if (!firstName || !lastName || !email || !phone) {
       return {
         statusCode: 400,
@@ -28,13 +27,11 @@ exports.handler = async function (event) {
           'Access-Control-Allow-Origin': '*',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          error: 'Missing required fields: firstName, lastName, email, or phone'
-        })
+        body: JSON.stringify({ error: 'Missing required query params' })
       };
     }
 
-    const locationId = 've9EPM428h8vShlRW1KT'; // 🔒 Hardcoded location ID
+    const locationId = 've9EPM428h8vShlRW1KT';
 
     const body = {
       firstName,
@@ -47,18 +44,17 @@ exports.handler = async function (event) {
       tags: notes ? [notes] : []
     };
 
-    const config = {
-      method: 'post',
-      url: 'https://services.leadconnectorhq.com/contacts/',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Version: '2021-07-28',
-        'Content-Type': 'application/json'
-      },
-      data: body
-    };
-
-    const response = await axios(config);
+    const response = await axios.post(
+      'https://services.leadconnectorhq.com/contacts/',
+      body,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Version: '2021-07-28',
+          'Content-Type': 'application/json'
+        }
+      }
+    );
 
     return {
       statusCode: 201,
@@ -73,7 +69,6 @@ exports.handler = async function (event) {
     const status = err.response?.status || 500;
     const message = err.response?.data || err.message;
 
-    // 🔁 Duplicate contact handling
     if (status === 422 && message?.message?.includes('already exists')) {
       return {
         statusCode: 409,
@@ -85,7 +80,7 @@ exports.handler = async function (event) {
       };
     }
 
-    console.error('❌ Error creating contact:', message);
+    console.error('❌ Error:', message);
     return {
       statusCode: status,
       headers: {
