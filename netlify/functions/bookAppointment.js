@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { getStoredTokens, refreshAccessToken } = require('../../token'); // Adjust path if needed
+console.log("📅 bookAppointment function - updated 2025-08-14 22:15 UTC");
 
 exports.handler = async function (event) {
   try {
