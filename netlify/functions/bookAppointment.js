@@ -16,25 +16,24 @@ exports.handler = async function (event) {
     }
 
     const params = event.queryStringParameters;
-
     const { contactId, calendarId, assignedUserId, startTime, endTime } = params;
 
-    // ✅ Validate required parameters
-    if (!contactId || !calendarId || !assignedUserId || !startTime || !endTime) {
+    // ✅ Validate only truly required parameters
+    if (!contactId || !calendarId || !startTime || !endTime) {
       return {
         statusCode: 400,
         headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Missing required parameters: contactId, calendarId, assignedUserId, startTime, endTime' })
+        body: JSON.stringify({ error: 'Missing required parameters: contactId, calendarId, startTime, endTime' })
       };
     }
 
+    // Base payload
     const payload = {
       title: "Booking from Restyle website",
       meetingLocationType: "custom",
       meetingLocationId: "custom_0",
       overrideLocationConfig: true,
       appointmentStatus: "confirmed",
-      assignedUserId,
       address: "Zoom",
       ignoreDateRange: true,
       toNotify: true,
@@ -45,6 +44,11 @@ exports.handler = async function (event) {
       startTime,
       endTime
     };
+
+    // Only add assignedUserId if provided
+    if (assignedUserId) {
+      payload.assignedUserId = assignedUserId;
+    }
 
     const response = await axios.post(
       'https://services.leadconnectorhq.com/calendars/events/appointments',
