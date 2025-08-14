@@ -2,6 +2,19 @@ const axios = require('axios');
 const { getStoredTokens } = require('../../token'); // Adjust if needed
 
 exports.handler = async function (event) {
+  // Handle CORS preflight request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+      },
+      body: ''
+    };
+  }
+
   try {
     const tokens = await getStoredTokens();
     const accessToken = tokens?.access_token;
@@ -17,12 +30,12 @@ exports.handler = async function (event) {
       };
     }
 
-    // Parse query params
+    // Parse query params with default calendarId
     const { calendarId = 'woILyX2cMn3skq1MaTgL', userId } = event.queryStringParameters || {};
 
-    // Helper to fetch slots
+    // Helper: Fetch slots from API
     const fetchSlots = async (start, end) => {
-      let url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${end}`;
+      let url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${encodeURIComponent(start)}&endDate=${encodeURIComponent(end)}`;
       if (userId) url += `&userId=${userId}`;
 
       const config = {
@@ -38,6 +51,7 @@ exports.handler = async function (event) {
       return response.data;
     };
 
+    // Helper: Format slots to Mountain Time
     const formatSlots = (slotsData) => {
       const formatted = {};
       Object.entries(slotsData).forEach(([date, value]) => {
@@ -55,17 +69,13 @@ exports.handler = async function (event) {
       return formatted;
     };
 
-    // Dates: today and tomorrow
-    const today = new Date();
-    const tomorrow = new Date();
-    tomorrow.setDate(today.getDate() + 1);
-
+    // Get ISO date range for a specific day
     const getDayRange = (day) => ({
-      start: new Date(day.setHours(0, 0, 0, 0)).getTime(),
-      end: new Date(day.setHours(23, 59, 59, 999)).getTime()
+      start: new Date(day.setHours(0, 0, 0, 0)).toISOString(),
+      end: new Date(day.setHours(23, 59, 59, 999)).toISOString()
     });
 
-    // Check today's availability
+    // Today
     const { start: todayStart, end: todayEnd } = getDayRange(new Date());
     const todayData = await fetchSlots(todayStart, todayEnd);
     const todayFormatted = formatSlots(todayData);
@@ -85,7 +95,9 @@ exports.handler = async function (event) {
       };
     }
 
-    // If no slots today, check tomorrow
+    // Tomorrow
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
     const { start: tomorrowStart, end: tomorrowEnd } = getDayRange(new Date(tomorrow));
     const tomorrowData = await fetchSlots(tomorrowStart, tomorrowEnd);
     const tomorrowFormatted = formatSlots(tomorrowData);
@@ -104,7 +116,7 @@ exports.handler = async function (event) {
     };
 
   } catch (err) {
-    console.error('❌ Error in getactiveslot:', err.response?.data || err.message);
+    console.error('❌ Error in getAllStaffSlot:', err.response?.data || err.message);
     return {
       statusCode: 500,
       headers: {
