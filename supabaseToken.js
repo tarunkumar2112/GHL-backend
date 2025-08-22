@@ -1,7 +1,8 @@
-
+// supabaseToken.js
 const axios = require('axios');
 const { Pool } = require('pg');
 
+// Supabase connection
 const pool = new Pool({
   connectionString: process.env.SUPABASE_DB_URL,
   ssl: { rejectUnauthorized: false }
@@ -29,7 +30,7 @@ async function saveTokensToDB(data) {
   }
 }
 
-// Get the latest token
+// Get the latest token from DB
 async function getStoredTokens() {
   try {
     const res = await pool.query(
@@ -46,14 +47,17 @@ async function getStoredTokens() {
 async function refreshAccessToken() {
   try {
     const stored = await getStoredTokens();
+
+    // ✅ Always prefer DB refresh token if available
     const currentRefreshToken = stored?.refresh_token || ENV_REFRESH_TOKEN;
+    console.log("🔄 Using refresh token:", currentRefreshToken?.substring(0, 15) + "...");
 
     const payload = new URLSearchParams({
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
       grant_type: 'refresh_token',
-      refresh_token: currentRefreshToken,
-      user_type: 'Location',
+      refresh_token: currentRefreshToken
+      // user_type: 'Location', // 🔎 Uncomment only if API really requires this
     });
 
     const response = await axios.post(TOKEN_ENDPOINT, payload.toString(), {
@@ -72,7 +76,7 @@ async function refreshAccessToken() {
     };
 
     await saveTokensToDB(tokens);
-    console.log("🔐 Access Token:", tokens.access_token);
+    console.log("🔐 New Access Token saved.");
 
   } catch (err) {
     console.error("❌ Token Refresh Error:", err.response?.data || err.message);
@@ -82,10 +86,11 @@ async function refreshAccessToken() {
 // Return valid token: refresh if expired
 async function getValidAccessToken() {
   const tokens = await getStoredTokens();
+
   if (!tokens) {
     console.log("⚠️ No tokens in DB, refreshing...");
     await refreshAccessToken();
-    return (await getStoredTokens()).access_token;
+    return (await getStoredTokens())?.access_token;
   }
 
   const fetchedTime = new Date(tokens.created_at).getTime();
@@ -95,9 +100,10 @@ async function getValidAccessToken() {
   if (now - fetchedTime > expiresInMs - 60000) {
     console.log("🔁 Token expired or near expiry. Refreshing...");
     await refreshAccessToken();
-    return (await getStoredTokens()).access_token;
+    return (await getStoredTokens())?.access_token;
   }
 
+  console.log("✅ Using valid access token from DB");
   return tokens.access_token;
 }
 
