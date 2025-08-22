@@ -4,7 +4,7 @@ const { getValidAccessToken } = require('../../supabaseToken');
 exports.handler = async function () {
   try {
     const accessToken = await getValidAccessToken();
-
+console.log(accessToken);
     if (!accessToken) {
       return {
         statusCode: 401,
