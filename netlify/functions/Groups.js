@@ -16,7 +16,7 @@ exports.handler = async function () {
       };
     }
 
-    const locationId = '7LYI93XFo8j4nZfswlaz'; // Hardcoded ya env se le lo
+    const locationId = '7LYI93XFo8j4nZfswlaz'; 
 
     const response = await axios.get(
       `https://services.leadconnectorhq.com/calendars/groups?locationId=${locationId}`,
