@@ -1,11 +1,11 @@
 const axios = require('axios');
-const { getValidAccessToken } = require('../../supabaseToken');
+const { getValidAccessToken } = require('../../supbase');
 
 exports.handler = async function () {
   try {
     const accessToken = await getValidAccessToken();
 console.log(accessToken);
-    if (!accessToken) {
+    if (!accessToken) { 
       return {
         statusCode: 401,
         headers: {
