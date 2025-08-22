@@ -2,6 +2,7 @@
 .netlify
 
 .env
+.env.Local
 
 node_modules
 

@@ -1,8 +1,7 @@
-// supabaseToken.js
+require('dotenv').config();
 const axios = require('axios');
 const { Pool } = require('pg');
 
-// Supabase connection
 const pool = new Pool({
   connectionString: process.env.SUPABASE_DB_URL,
   ssl: { rejectUnauthorized: false }
@@ -24,13 +23,13 @@ async function saveTokensToDB(data) {
        VALUES ($1, $2, $3, $4, $5, NOW())`,
       [access_token, refresh_token, expires_in, user_id, location_id]
     );
-    console.log('✅ Tokens saved to Supabase DB');
+    console.log('Tokens saved to Supabase DB');
   } catch (err) {
-    console.error('❌ DB Save Error:', err.message);
+    console.error('DB Save Error:', err.message);
   }
 }
 
-// Get the latest token from DB
+// Get the latest token
 async function getStoredTokens() {
   try {
     const res = await pool.query(
@@ -47,17 +46,14 @@ async function getStoredTokens() {
 async function refreshAccessToken() {
   try {
     const stored = await getStoredTokens();
-
-    // ✅ Always prefer DB refresh token if available
     const currentRefreshToken = stored?.refresh_token || ENV_REFRESH_TOKEN;
-    console.log("🔄 Using refresh token:", currentRefreshToken?.substring(0, 15) + "...");
 
     const payload = new URLSearchParams({
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
       grant_type: 'refresh_token',
-      refresh_token: currentRefreshToken
-      // user_type: 'Location', // 🔎 Uncomment only if API really requires this
+      refresh_token: currentRefreshToken,
+      user_type: 'Location',
     });
 
     const response = await axios.post(TOKEN_ENDPOINT, payload.toString(), {
@@ -76,7 +72,7 @@ async function refreshAccessToken() {
     };
 
     await saveTokensToDB(tokens);
-    console.log("🔐 New Access Token saved.");
+    console.log("🔐 Access Token:", tokens.access_token);
 
   } catch (err) {
     console.error("❌ Token Refresh Error:", err.response?.data || err.message);
@@ -86,11 +82,10 @@ async function refreshAccessToken() {
 // Return valid token: refresh if expired
 async function getValidAccessToken() {
   const tokens = await getStoredTokens();
-
   if (!tokens) {
     console.log("⚠️ No tokens in DB, refreshing...");
     await refreshAccessToken();
-    return (await getStoredTokens())?.access_token;
+    return (await getStoredTokens()).access_token;
   }
 
   const fetchedTime = new Date(tokens.created_at).getTime();
@@ -100,10 +95,9 @@ async function getValidAccessToken() {
   if (now - fetchedTime > expiresInMs - 60000) {
     console.log("🔁 Token expired or near expiry. Refreshing...");
     await refreshAccessToken();
-    return (await getStoredTokens())?.access_token;
+    return (await getStoredTokens()).access_token;
   }
 
-  console.log("✅ Using valid access token from DB");
   return tokens.access_token;
 }
 
