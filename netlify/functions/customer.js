@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { getValidAccessToken } = require('../../supbase'); // auto-refresh helper
-const { saveContactToDB } = require('../../supabasecontact');
+const { saveContactToDB } = require('../../supabaseContacts');
 
 exports.handler = async function (event) {
   try {
