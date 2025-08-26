@@ -1,6 +1,6 @@
 const axios = require('axios');
-const { getValidAccessToken } = require('../../supbase'); 
-const { saveContactToDB } = require('../../supabaseContacts'); 
+const { getValidAccessToken } = require('../../supbase');
+const { saveContactToDB } = require('../../supabaseContacts');
 
 exports.handler = async function (event) {
   try {
@@ -26,7 +26,7 @@ exports.handler = async function (event) {
       };
     }
 
-    const locationId = '7LYI93XFo8j4nZfswlaz'; // 🔒 Hardcoded
+    const locationId = '7LYI93XFo8j4nZfswlaz';
 
     const body = {
       firstName,
@@ -53,15 +53,23 @@ exports.handler = async function (event) {
       }
     );
 
-    const lcContact = response.data.contact.contact; // 👈 use inner object
+    console.log('🔍 Full LeadConnector response:', JSON.stringify(response.data, null, 2));
+
+    // ✅ Step 2: Extract contact safely
+    const lcContact = response.data?.contact?.contact || response.data?.contact;
+
+    if (!lcContact || !lcContact.id) {
+      throw new Error('LeadConnector response missing contact object');
+    }
+
     console.log('✅ LeadConnector contact created:', lcContact.id);
 
-    // ✅ Step 2: Insert into Supabase
+    // ✅ Step 3: Save to Supabase
     console.log('📥 Saving to Supabase:', lcContact);
     const dbResult = await saveContactToDB(lcContact);
     console.log('✅ Supabase insert result:', dbResult);
 
-    // ✅ Step 3: Return combined result
+    // ✅ Step 4: Return success
     return {
       statusCode: 201,
       headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
