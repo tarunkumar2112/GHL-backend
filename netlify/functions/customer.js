@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { getValidAccessToken } = require('../../supbase'); // auto-refresh helper
+const { saveContactToDB } = require('../../supabaseContacts'); // 👈 new helper
 
 exports.handler = async function (event) {
   try {
@@ -43,6 +44,7 @@ exports.handler = async function (event) {
       tags: notes ? [notes] : []
     };
 
+    // ✅ Step 1: Create contact in LeadConnector
     const response = await axios.post(
       'https://services.leadconnectorhq.com/contacts/',
       body,
@@ -55,6 +57,10 @@ exports.handler = async function (event) {
       }
     );
 
+    // ✅ Step 2: Store contact in Supabase (Restyle_customers table)
+    await saveContactToDB(response.data.contact);
+
+    // ✅ Step 3: Return success to client
     return {
       statusCode: 201,
       headers: {
