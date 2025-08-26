@@ -9,7 +9,7 @@ const supabase = createClient(
 async function saveContactToDB(contact) {
   try {
     const { error } = await supabase
-      .from('Restyle_customers')
+      .from('restyle_customers') // 👈 must be lowercase in Supabase
       .insert([{
         id: contact.id,
         date_added: contact.dateAdded,
@@ -40,7 +40,7 @@ async function saveContactToDB(contact) {
       return { success: false, error: error.message };
     }
 
-    console.log(`✅ Contact ${contact.id} saved to Restyle_customers`);
+    console.log(`✅ Contact ${contact.id} saved to restyle_customers`);
     return { success: true };
   } catch (err) {
     console.error('❌ Unexpected Supabase error:', err.message);

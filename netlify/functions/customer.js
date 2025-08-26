@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { getValidAccessToken } = require('../../supbase'); // auto-refresh helper
+const { saveContactToDB } = require('../../supabasecontact');
 
 exports.handler = async function (event) {
   try {
@@ -54,6 +55,7 @@ exports.handler = async function (event) {
         }
       }
     );
+    await saveContactToDB(response.data.contact.contact);
 
     return {
       statusCode: 201,
