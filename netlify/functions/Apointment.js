@@ -1,6 +1,6 @@
 const axios = require("axios")
-const { getValidAccessToken } = require("../../supbase") // unified helper
-const { saveBookingToDB } = require("../../supabaseAppointments") // new helper
+const { getValidAccessToken } = require("../../supbase")
+const { saveBookingToDB } = require("../../supabaseAppointments")
 
 console.log("📅 bookAppointment function - updated 2025-08-26")
 
@@ -11,10 +11,7 @@ exports.handler = async function (event) {
     if (!accessToken) {
       return {
         statusCode: 401,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        },
+        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({ error: "Access token missing" }),
       }
     }
@@ -22,21 +19,16 @@ exports.handler = async function (event) {
     const params = event.queryStringParameters || {}
     const { contactId, calendarId, assignedUserId, startTime, endTime } = params
 
-    // ✅ Validate required parameters
     if (!contactId || !calendarId || !startTime || !endTime) {
       return {
         statusCode: 400,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        },
+        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           error: "Missing required parameters: contactId, calendarId, startTime, endTime",
         }),
       }
     }
 
-    // Base payload
     const payload = {
       title: "Booking from Restyle website",
       meetingLocationType: "custom",
@@ -48,13 +40,12 @@ exports.handler = async function (event) {
       toNotify: true,
       ignoreFreeSlotValidation: true,
       calendarId,
-      locationId: "7LYI93XFo8j4nZfswlaz", // 🔒 Hardcoded locationId
+      locationId: "7LYI93XFo8j4nZfswlaz",
       contactId,
       startTime,
       endTime,
     }
 
-    // Only add assignedUserId if provided
     if (assignedUserId) {
       payload.assignedUserId = assignedUserId
     }
@@ -71,9 +62,11 @@ exports.handler = async function (event) {
       }
     )
 
+    // ✅ Correct extraction of booking
     const newBooking = response.data?.response || null
-    let dbInsert = null
+    console.log("📅 Extracted booking:", newBooking)
 
+    let dbInsert = null
     try {
       if (!newBooking || !newBooking.id) {
         throw new Error("Invalid booking data received from API")
@@ -87,10 +80,7 @@ exports.handler = async function (event) {
 
     return {
       statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
+      headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         message: "✅ Booking success",
         response: response.data,
@@ -104,10 +94,7 @@ exports.handler = async function (event) {
 
     return {
       statusCode: status,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
+      headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         error: "Booking failed",
         details: message,
