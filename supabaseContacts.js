@@ -8,31 +8,38 @@ const supabase = createClient(
 
 async function saveContactToDB(contact) {
   try {
+    if (!contact || !contact.id) {
+      console.error('❌ Invalid contact object passed:', contact);
+      return { success: false, error: 'Invalid contact object' };
+    }
+
     const { error } = await supabase
-      .from('restyle_customers') // 👈 must be lowercase in Supabase
+      .from('restyle_customers')
       .insert([{
         id: contact.id,
-        date_added: contact.dateAdded,
-        date_updated: contact.dateUpdated,
+        date_added: contact.dateAdded || null,
+        date_updated: contact.dateUpdated || null,
         tags: contact.tags || [],
-        type: contact.type,
-        location_id: contact.locationId,
-        first_name: contact.firstName,
-        last_name: contact.lastName,
-        last_name_lowercase: contact.lastNameLowerCase,
-        email: contact.email,
-        bounce_email: contact.bounceEmail,
-        unsubscribe_email: contact.unsubscribeEmail,
-        phone: contact.phone,
-        country: contact.country,
-        source: contact.source,
+        type: contact.type || null,
+        location_id: contact.locationId || null,
+        first_name: contact.firstName || null,
+        last_name: contact.lastName || null,
+        last_name_lowercase: contact.lastNameLowerCase || null,
+        email: contact.email || null,
+        bounce_email: contact.bounceEmail ?? null,
+        unsubscribe_email: contact.unsubscribeEmail ?? null,
+        phone: contact.phone || null,
+        country: contact.country || null,
+        source: contact.source || null,
+
         created_by_source_id: contact.createdBy?.sourceId || null,
         created_by_timestamp: contact.createdBy?.timestamp || null,
         last_updated_by_source_id: contact.lastUpdatedBy?.sourceId || null,
         last_updated_by_timestamp: contact.lastUpdatedBy?.timestamp || null,
-        last_session_activity_at: contact.lastSessionActivityAt,
-        valid_email: contact.validEmail,
-        valid_email_date: contact.validEmailDate
+
+        last_session_activity_at: contact.lastSessionActivityAt || null,
+        valid_email: contact.validEmail ?? null,
+        valid_email_date: contact.validEmailDate || null
       }]);
 
     if (error) {

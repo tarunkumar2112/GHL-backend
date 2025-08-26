@@ -55,7 +55,15 @@ exports.handler = async function (event) {
         }
       }
     );
-const dbInsert = await saveContactToDB(response.data.contact.contact);
+
+    // ✅ Extract actual contact object
+    const newContact = response.data?.contact?.contact;
+    console.log("Saving to DB:", newContact);
+
+    // ✅ Save to Supabase
+    const dbInsert = newContact
+      ? await saveContactToDB(newContact)
+      : { success: false, error: 'Contact object missing in API response' };
 
     return {
       statusCode: 201,
@@ -63,7 +71,7 @@ const dbInsert = await saveContactToDB(response.data.contact.contact);
         'Access-Control-Allow-Origin': '*',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ success: true, contact: response.data,  dbInsert  })
+      body: JSON.stringify({ success: true, contact: response.data, dbInsert })
     };
 
   } catch (err) {
