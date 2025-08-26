@@ -49,34 +49,34 @@ exports.handler = async function (event) {
     if (assignedUserId) {
       payload.assignedUserId = assignedUserId
     }
+const response = await axios.post(
+  "https://services.leadconnectorhq.com/calendars/events/appointments",
+  payload,
+  {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Version: "2021-04-15",
+      "Content-Type": "application/json",
+    },
+  }
+)
 
-    const response = await axios.post(
-      "https://services.leadconnectorhq.com/calendars/events/appointments",
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Version: "2021-04-15",
-          "Content-Type": "application/json",
-        },
-      }
-    )
+// ✅ FIX: Extract booking from the right level
+const newBooking = response.data || null
+console.log("📅 Extracted booking:", newBooking)
 
-    // ✅ Correct extraction of booking
-    const newBooking = response.data?.response || null
-    console.log("📅 Extracted booking:", newBooking)
+let dbInsert = null
+try {
+  if (!newBooking || !newBooking.id) {
+    throw new Error("Invalid booking data received from API")
+  }
+  dbInsert = await saveBookingToDB(newBooking)
+} catch (dbError) {
+  console.error("❌ DB save failed:", dbError.message)
+  console.error("❌ Booking data that failed:", JSON.stringify(newBooking, null, 2))
+  dbInsert = { error: dbError.message }
+}
 
-    let dbInsert = null
-    try {
-      if (!newBooking || !newBooking.id) {
-        throw new Error("Invalid booking data received from API")
-      }
-      dbInsert = await saveBookingToDB(newBooking)
-    } catch (dbError) {
-      console.error("❌ DB save failed:", dbError.message)
-      console.error("❌ Booking data that failed:", JSON.stringify(newBooking, null, 2))
-      dbInsert = { error: dbError.message }
-    }
 
     return {
       statusCode: 200,
