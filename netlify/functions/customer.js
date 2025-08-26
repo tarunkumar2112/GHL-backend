@@ -55,7 +55,7 @@ exports.handler = async function (event) {
         }
       }
     );
-    await saveContactToDB(response.data.contact.contact);
+const dbInsert = await saveContactToDB(response.data.contact.contact);
 
     return {
       statusCode: 201,
@@ -63,7 +63,7 @@ exports.handler = async function (event) {
         'Access-Control-Allow-Origin': '*',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ success: true, contact: response.data })
+      body: JSON.stringify({ success: true, contact: response.data,  dbInsert  })
     };
 
   } catch (err) {
