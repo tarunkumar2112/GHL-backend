@@ -9,10 +9,7 @@ exports.handler = async (event) => {
     if (!accessToken) {
       return {
         statusCode: 401,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        },
+        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({ error: "Access token missing" }),
       }
     }
@@ -23,10 +20,7 @@ exports.handler = async (event) => {
     if (!firstName || !lastName || !email || !phone) {
       return {
         statusCode: 400,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        },
+        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({ error: "Missing required query params" }),
       }
     }
@@ -52,9 +46,9 @@ exports.handler = async (event) => {
       },
     })
 
-    // ✅ Always pick correct nested contact object
-    const newContact = response.data.contact.contact
-    console.log("📞 API Response - Saving to DB:", newContact)
+    // ✅ Handle both cases: nested `contact.contact` or direct `contact`
+    let newContact = response.data?.contact?.contact || response.data?.contact || null
+    console.log("📞 API Response - Extracted contact:", newContact)
 
     let dbInsert = null
     try {
@@ -67,16 +61,12 @@ exports.handler = async (event) => {
     } catch (dbError) {
       console.error("❌ DB save failed:", dbError.message)
       console.error("❌ Contact data that failed:", JSON.stringify(newContact, null, 2))
-      // Continue execution - don't fail the whole request if DB save fails
       dbInsert = { error: dbError.message }
     }
 
     return {
       statusCode: 201,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
+      headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({ success: true, contact: response.data, dbInsert }),
     }
   } catch (err) {
@@ -86,28 +76,16 @@ exports.handler = async (event) => {
     if (status === 422 && message?.message?.includes("already exists")) {
       return {
         statusCode: 409,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          error: "Contact already exists",
-          details: message,
-        }),
+        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "Contact already exists", details: message }),
       }
     }
 
     console.error("❌ Error creating contact:", message)
     return {
       statusCode: status,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        error: "Failed to create contact",
-        details: message,
-      }),
+      headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "Failed to create contact", details: message }),
     }
   }
 }

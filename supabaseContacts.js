@@ -61,7 +61,8 @@ async function saveContactToDB(contact) {
 
     console.log("🗂️ Mapped contact for DB:", JSON.stringify(mappedContact, null, 2))
 
-    const { data, error } = await supabase.from("restyle_contacts").insert(mappedContact).select()
+    // ✅ Supabase expects array of rows
+    const { data, error } = await supabase.from("restyle_contacts").insert([mappedContact]).select()
 
     if (error) {
       console.error("❌ Supabase error details:", error)
