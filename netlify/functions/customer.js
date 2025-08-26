@@ -58,10 +58,15 @@ exports.handler = async (event) => {
 
     let dbInsert = null
     try {
+      if (!newContact || !newContact.id) {
+        throw new Error("Invalid contact data received from API")
+      }
+
       dbInsert = await saveContactToDB(newContact)
       console.log("✅ DB save successful:", dbInsert)
     } catch (dbError) {
       console.error("❌ DB save failed:", dbError.message)
+      console.error("❌ Contact data that failed:", JSON.stringify(newContact, null, 2))
       // Continue execution - don't fail the whole request if DB save fails
       dbInsert = { error: dbError.message }
     }

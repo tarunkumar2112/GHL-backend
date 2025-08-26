@@ -26,14 +26,15 @@ async function saveContactToDB(contact) {
       location_id: contact.locationId || null,
 
       first_name: contact.firstName || null,
-      first_name_lowercase: contact.firstName?.toLowerCase() || null,
+      first_name_lowercase: contact.firstNameLowerCase || contact.firstName?.toLowerCase() || null,
       last_name: contact.lastName || null,
-      last_name_lowercase: contact.lastName?.toLowerCase() || null,
+      last_name_lowercase: contact.lastNameLowerCase || contact.lastName?.toLowerCase() || null,
       full_name_lowercase:
-        contact.firstName && contact.lastName ? `${contact.firstName} ${contact.lastName}`.toLowerCase() : null,
+        contact.fullNameLowerCase ||
+        (contact.firstName && contact.lastName ? `${contact.firstName} ${contact.lastName}`.toLowerCase() : null),
 
       email: contact.email || null,
-      email_lowercase: contact.email?.toLowerCase() || null,
+      email_lowercase: contact.emailLowerCase || contact.email?.toLowerCase() || null,
       bounce_email: contact.bounceEmail || false,
       unsubscribe_email: contact.unsubscribeEmail || false,
 
