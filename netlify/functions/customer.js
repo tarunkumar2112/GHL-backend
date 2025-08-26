@@ -4,7 +4,10 @@ const { saveContactToDB } = require('../../supabaseContacts'); // 👈 new helpe
 
 exports.handler = async function (event) {
   try {
+    console.log('👉 Incoming request params:', event.queryStringParameters);
+
     const accessToken = await getValidAccessToken();
+    console.log('✅ Got access token?', !!accessToken);
 
     if (!accessToken) {
       return {
@@ -21,6 +24,7 @@ exports.handler = async function (event) {
     const { firstName, lastName, email, phone, notes } = params;
 
     if (!firstName || !lastName || !email || !phone) {
+      console.warn('⚠️ Missing required params:', params);
       return {
         statusCode: 400,
         headers: {
@@ -45,6 +49,8 @@ exports.handler = async function (event) {
     };
 
     // ✅ Step 1: Create contact in LeadConnector
+    console.log('📤 Sending to LeadConnector:', body);
+
     const response = await axios.post(
       'https://services.leadconnectorhq.com/contacts/',
       body,
@@ -57,8 +63,17 @@ exports.handler = async function (event) {
       }
     );
 
+    console.log('✅ LeadConnector response:', response.data);
+
     // ✅ Step 2: Store contact in Supabase (Restyle_customers table)
-    await saveContactToDB(response.data.contact);
+    try {
+      console.log('📥 Saving to Supabase:', response.data.contact);
+      const dbResult = await saveContactToDB(response.data.contact);
+      console.log('✅ Supabase insert result:', dbResult);
+    } catch (dbErr) {
+      console.error('❌ Supabase save failed:', dbErr);
+      throw new Error(`Supabase insert error: ${dbErr.message}`);
+    }
 
     // ✅ Step 3: Return success to client
     return {
