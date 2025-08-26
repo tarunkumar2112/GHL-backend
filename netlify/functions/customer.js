@@ -56,14 +56,11 @@ exports.handler = async function (event) {
       }
     );
 
-    // ✅ Extract actual contact object
-    const newContact = response.data?.contact?.contact;
+    // ✅ Always pick correct nested contact object
+    const newContact = response.data.contact.contact;
     console.log("Saving to DB:", newContact);
 
-    // ✅ Save to Supabase
-    const dbInsert = newContact
-      ? await saveContactToDB(newContact)
-      : { success: false, error: 'Contact object missing in API response' };
+    const dbInsert = await saveContactToDB(newContact);
 
     return {
       statusCode: 201,

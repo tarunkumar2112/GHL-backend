@@ -15,7 +15,7 @@ async function saveContactToDB(contact) {
 
     const { error } = await supabase
       .from('restyle_customers')
-      .insert([{
+      .upsert([{
         id: contact.id,
         date_added: contact.dateAdded || null,
         date_updated: contact.dateUpdated || null,
@@ -40,14 +40,14 @@ async function saveContactToDB(contact) {
         last_session_activity_at: contact.lastSessionActivityAt || null,
         valid_email: contact.validEmail ?? null,
         valid_email_date: contact.validEmailDate || null
-      }]);
+      }], { onConflict: 'id' }); // ✅ avoids duplicate error
 
     if (error) {
       console.error('❌ Supabase insert error:', error.message);
       return { success: false, error: error.message };
     }
 
-    console.log(`✅ Contact ${contact.id} saved to restyle_customers`);
+    console.log(`✅ Contact ${contact.id} saved/updated in restyle_customers`);
     return { success: true };
   } catch (err) {
     console.error('❌ Unexpected Supabase error:', err.message);
