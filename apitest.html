@@ -11,19 +11,7 @@
       padding: 24px;
       background: #f8fafc;
     }
-    h1 { 
-      margin: 0 0 12px; 
-      color: #1e293b;
-      font-size: 2rem;
-      font-weight: 700;
-    }
-    .hint { 
-      color: #64748b; 
-      margin-bottom: 24px; 
-      font-size: 1.1rem;
-    }
     
-    /* Replaced table styles with grid layout */
     .bookings-grid {
       display: grid;
       gap: 20px;
@@ -73,7 +61,7 @@
     
     .booking-details {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
       gap: 16px;
       margin-bottom: 20px;
     }
@@ -96,6 +84,22 @@
       font-weight: 500;
     }
     
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    
+    .tag {
+      background: #f1f5f9;
+      color: #475569;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+    
     .booking-actions {
       display: flex;
       gap: 12px;
@@ -115,26 +119,21 @@
       font-weight: 500;
       font-size: 0.875rem;
       transition: all 0.2s ease;
+      background: #751a29;
+      color: white;
     }
     
-    .reschedule { 
-      background: #3b82f6; 
-      color: #fff; 
-    }
-    
-    .reschedule:hover {
-      background: #2563eb;
+    button:hover {
+      background: #5c1520;
       transform: translateY(-1px);
     }
     
-    .delete { 
-      background: #ef4444; 
-      color: #fff; 
+    .delete {
+      background: #ef4444;
     }
     
     .delete:hover {
       background: #dc2626;
-      transform: translateY(-1px);
     }
     
     .muted { 
@@ -158,7 +157,7 @@
       width: 20px;
       height: 20px;
       border: 2px solid #e2e8f0;
-      border-top: 2px solid #3b82f6;
+      border-top: 2px solid #751a29;
       border-radius: 50%;
       animation: spin 1s linear infinite;
     }
@@ -168,10 +167,46 @@
       100% { transform: rotate(360deg); }
     }
     
-    /* Added responsive design */
+    /* Skeleton loading styles */
+    .skeleton {
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: loading 1.5s infinite;
+      border-radius: 4px;
+    }
+    
+    @keyframes loading {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    
+    .skeleton-card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+      border: 1px solid #e2e8f0;
+      margin-bottom: 20px;
+    }
+    
+    .skeleton-title {
+      height: 24px;
+      width: 60%;
+      margin-bottom: 16px;
+    }
+    
+    .skeleton-detail {
+      height: 16px;
+      margin-bottom: 12px;
+    }
+    
+    .skeleton-detail.short { width: 40%; }
+    .skeleton-detail.medium { width: 60%; }
+    .skeleton-detail.long { width: 80%; }
+    
+    /* Responsive design */
     @media (max-width: 768px) {
       body { padding: 16px; }
-      h1 { font-size: 1.75rem; }
       .booking-details { grid-template-columns: 1fr; }
       .booking-actions { flex-direction: column; }
       button { justify-content: center; }
@@ -179,8 +214,6 @@
   </style>
 </head>
 <body>
-  <h1>My Bookings</h1>
-  <div class="hint">Manage your bookings below. You can reschedule or delete an appointment.</div>
   <div id="status" class="muted">Loading...</div>
   <div id="bookings-container"></div>
 
@@ -195,9 +228,28 @@
       loadBookings()
     }
 
+    function showSkeletons() {
+      bookingsContainer.innerHTML = `
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-title"></div>
+          <div class="skeleton skeleton-detail medium"></div>
+          <div class="skeleton skeleton-detail short"></div>
+          <div class="skeleton skeleton-detail long"></div>
+          <div class="skeleton skeleton-detail medium"></div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-title"></div>
+          <div class="skeleton skeleton-detail short"></div>
+          <div class="skeleton skeleton-detail long"></div>
+          <div class="skeleton skeleton-detail medium"></div>
+          <div class="skeleton skeleton-detail short"></div>
+        </div>
+      `
+    }
+
     async function loadBookings() {
       statusEl.innerHTML = `<div class="loading"><div class="spinner"></div>Loading bookings...</div>`
-      bookingsContainer.innerHTML = ""
+      showSkeletons()
 
       try {
         const res = await fetch(`/.netlify/functions/bookings?contactId=${encodeURIComponent(contactId)}`, {
@@ -213,6 +265,7 @@
         const bookings = data.bookings || []
         if (bookings.length === 0) {
           statusEl.textContent = "No bookings found."
+          bookingsContainer.innerHTML = ""
           return
         }
 
@@ -221,6 +274,7 @@
       } catch (err) {
         console.error(err)
         statusEl.textContent = "❌ Failed to load bookings."
+        bookingsContainer.innerHTML = ""
       }
     }
 
@@ -229,32 +283,48 @@
         bookings.map(async (booking) => {
           const details = { ...booking }
           
-          // Fetch service details from calendar
-          if (booking.calendar_id) {
-            try {
-              const calendarRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Calendarget?id=${booking.calendar_id}`)
-              const calendarData = await calendarRes.json()
-              if (calendarRes.ok && calendarData.calendar) {
-                details.serviceName = calendarData.calendar.name
-                details.serviceDescription = calendarData.calendar.description?.replace(/<[^>]*>/g, '') // Remove HTML tags
-              }
-            } catch (err) {
-              console.error('Failed to fetch calendar details:', err)
-              details.serviceName = 'Unknown Service'
+          // Fetch contact details
+          try {
+            const contactRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/getContact?id=${contactId}`)
+            const contactData = await contactRes.json()
+            if (contactRes.ok && contactData.contact) {
+              details.contactFirstName = contactData.contact.firstName
+              details.contactLastName = contactData.contact.lastName
+              details.contactEmail = contactData.contact.email
+              details.contactPhone = contactData.contact.phone
+              details.contactTags = contactData.contact.tags || []
             }
+          } catch (err) {
+            console.error('Failed to fetch contact details:', err)
+          }
+          
+          // Fetch booking details
+          try {
+            const bookingRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/getBooking?id=${booking.id}`)
+            const bookingData = await bookingRes.json()
+            if (bookingRes.ok && bookingData.appointment) {
+              details.serviceName = bookingData.appointment.title
+              details.startTime = bookingData.appointment.startTime
+              details.endTime = bookingData.appointment.endTime
+              details.appointmentStatus = bookingData.appointment.appointmentStatus
+              details.assignedUserId = bookingData.appointment.assignedUserId
+            }
+          } catch (err) {
+            console.error('Failed to fetch booking details:', err)
           }
           
           // Fetch staff details if assigned_user_id exists
-          if (booking.assigned_user_id) {
+          if (details.assignedUserId) {
             try {
-              const staffRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Staffget?id=${booking.assigned_user_id}`)
+              const staffRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Staff?id=${details.assignedUserId}`)
               const staffData = await staffRes.json()
-              if (staffRes.ok && staffData.name) {
-                details.assignedStaffName = staffData.name
+              if (staffRes.ok && staffData.firstName) {
+                details.assignedStaffFirstName = staffData.firstName
+                details.assignedStaffLastName = staffData.lastName
+                details.assignedStaffEmail = staffData.email
               }
             } catch (err) {
               console.error('Failed to fetch staff details:', err)
-              details.assignedStaffName = 'Unknown Staff'
             }
           }
           
@@ -265,43 +335,75 @@
       bookingsContainer.innerHTML = `<div class="bookings-grid">${bookingsWithDetails.map(renderBookingCard).join('')}</div>`
     }
 
+    function formatToMST(isoString) {
+      if (!isoString) return 'N/A'
+      try {
+        const date = new Date(isoString)
+        return date.toLocaleString('en-US', {
+          timeZone: 'America/Denver',
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZoneName: 'short'
+        })
+      } catch (err) {
+        return isoString
+      }
+    }
+
     function renderBookingCard(booking) {
+      const tags = booking.contactTags && booking.contactTags.length > 0 
+        ? `<div class="tags">${booking.contactTags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`
+        : ''
+
       return `
         <div class="booking-card">
           <div class="booking-header">
-            <h3 class="booking-title">${escapeHtml(booking.title || 'Untitled Booking')}</h3>
-            <span class="booking-status">${escapeHtml(booking.appointment_status || booking.status || 'Pending')}</span>
+            <h3 class="booking-title">${escapeHtml(booking.serviceName || 'Untitled Booking')}</h3>
+            <span class="booking-status">${escapeHtml(booking.appointmentStatus || 'Pending')}</span>
           </div>
           
           <div class="booking-details">
             <div class="detail-item">
-              <span class="detail-label">Service</span>
-              <span class="detail-value">${escapeHtml(booking.serviceName || 'Loading...')}</span>
+              <span class="detail-label">Contact Name</span>
+              <span class="detail-value">${escapeHtml((booking.contactFirstName || '') + ' ' + (booking.contactLastName || ''))}</span>
             </div>
             
             <div class="detail-item">
-              <span class="detail-label">Contact Name</span>
-              <span class="detail-value">${escapeHtml(booking.contact_name || 'N/A')}</span>
+              <span class="detail-label">Email</span>
+              <span class="detail-value">${escapeHtml(booking.contactEmail || 'N/A')}</span>
+            </div>
+            
+            <div class="detail-item">
+              <span class="detail-label">Phone</span>
+              <span class="detail-value">${escapeHtml(booking.contactPhone || 'N/A')}</span>
             </div>
             
             <div class="detail-item">
               <span class="detail-label">Assigned Staff</span>
-              <span class="detail-value">${escapeHtml(booking.assignedStaffName || 'Loading...')}</span>
+              <span class="detail-value">${escapeHtml((booking.assignedStaffFirstName || '') + ' ' + (booking.assignedStaffLastName || '') || 'Not assigned')}</span>
             </div>
             
             <div class="detail-item">
-              <span class="detail-label">Address</span>
-              <span class="detail-value">${escapeHtml(booking.address || 'N/A')}</span>
+              <span class="detail-label">Start Time (MST)</span>
+              <span class="detail-value">${formatToMST(booking.startTime)}</span>
             </div>
             
             <div class="detail-item">
-              <span class="detail-label">Calendar ID</span>
-              <span class="detail-value">${escapeHtml(booking.calendar_id || 'N/A')}</span>
+              <span class="detail-label">End Time (MST)</span>
+              <span class="detail-value">${formatToMST(booking.endTime)}</span>
+            </div>
+            
+            <div class="detail-item">
+              <span class="detail-label">Tags</span>
+              <div class="detail-value">${tags || '<span style="color: #64748b;">No tags</span>'}</div>
             </div>
           </div>
           
           <div class="booking-actions">
-            <button class="reschedule" onclick="rescheduleBooking('${booking.id}', '${booking.calendar_id || ''}')">
+            <button onclick="rescheduleBooking('${booking.id}')">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
                 <path d="M21 3v5h-5"/>
@@ -341,7 +443,7 @@
       }
     }
 
-    async function rescheduleBooking(oldBookingId, calendarId) {
+    async function rescheduleBooking(oldBookingId) {
       const startTime = prompt("Enter new start time (ISO 8601, e.g. 2025-09-01T10:00:00Z):")
       if (!startTime) return
       const endTime = prompt("Enter new end time (ISO 8601, e.g. 2025-09-01T10:30:00Z):")
@@ -350,7 +452,6 @@
       try {
         const url = new URL("https://restyle-api.netlify.app/.netlify/functions/Appointment", location.origin)
         url.searchParams.set("contactId", contactId)
-        if (calendarId) url.searchParams.set("calendarId", calendarId)
         url.searchParams.set("startTime", startTime)
         url.searchParams.set("endTime", endTime)
 
