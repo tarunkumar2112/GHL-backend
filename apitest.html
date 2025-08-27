@@ -21,7 +21,7 @@
     .booking-card {
       background: white;
       border-radius: 12px;
-      padding: 24px;
+      padding: 16px;
       box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
       border: 1px solid #e2e8f0;
       transition: all 0.2s ease;
@@ -36,8 +36,8 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 16px;
-      padding-bottom: 16px;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
       border-bottom: 1px solid #e2e8f0;
     }
     
@@ -63,7 +63,7 @@
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
       gap: 16px;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
     
     .detail-item {
@@ -104,7 +104,7 @@
       display: flex;
       gap: 12px;
       justify-content: flex-end;
-      padding-top: 16px;
+      padding-top: 12px;
       border-top: 1px solid #e2e8f0;
     }
     
@@ -151,20 +151,6 @@
       padding: 40px;
       color: #64748b;
       font-size: 1.1rem;
-    }
-    
-    .spinner {
-      width: 20px;
-      height: 20px;
-      border: 2px solid #e2e8f0;
-      border-top: 2px solid #751a29;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-    
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
     }
     
     /* Skeleton loading styles */
@@ -248,7 +234,7 @@
     }
 
     async function loadBookings() {
-      statusEl.innerHTML = `<div class="loading"><div class="spinner"></div>Loading bookings...</div>`
+      statusEl.textContent = ""
       showSkeletons()
 
       try {
@@ -283,6 +269,21 @@
         bookings.map(async (booking) => {
           const details = { ...booking }
           
+          if (booking.calendar_id) {
+            try {
+              const calendarRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Calendarget?id=${booking.calendar_id}`)
+              const calendarData = await calendarRes.json()
+              if (calendarRes.ok && calendarData.calendar) {
+                details.serviceName = calendarData.calendar.name
+                details.serviceDescription = calendarData.calendar.description?.replace(/<[^>]*>/g, '') // Remove HTML tags
+                details.eventColor = calendarData.calendar.eventColor
+              }
+            } catch (err) {
+              console.error('Failed to fetch calendar details:', err)
+              details.serviceName = 'Unknown Service'
+            }
+          }
+          
           // Fetch contact details
           try {
             const contactRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/getContact?id=${contactId}`)
@@ -293,6 +294,7 @@
               details.contactEmail = contactData.contact.email
               details.contactPhone = contactData.contact.phone
               details.contactTags = contactData.contact.tags || []
+              details.contactNotes = contactData.contact.notes
             }
           } catch (err) {
             console.error('Failed to fetch contact details:', err)
@@ -303,7 +305,6 @@
             const bookingRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/getBooking?id=${booking.id}`)
             const bookingData = await bookingRes.json()
             if (bookingRes.ok && bookingData.appointment) {
-              details.serviceName = bookingData.appointment.title
               details.startTime = bookingData.appointment.startTime
               details.endTime = bookingData.appointment.endTime
               details.appointmentStatus = bookingData.appointment.appointmentStatus
@@ -379,6 +380,11 @@
             <div class="detail-item">
               <span class="detail-label">Phone</span>
               <span class="detail-value">${escapeHtml(booking.contactPhone || 'N/A')}</span>
+            </div>
+            
+            <div class="detail-item">
+              <span class="detail-label">Notes</span>
+              <span class="detail-value">${escapeHtml(booking.contactNotes || 'No notes')}</span>
             </div>
             
             <div class="detail-item">
