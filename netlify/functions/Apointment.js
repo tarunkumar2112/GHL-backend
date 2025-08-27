@@ -2,10 +2,7 @@ const axios = require("axios");
 const { getValidAccessToken } = require("../../supbase");
 const { saveBookingToDB } = require("../../supabaseAppointments");
 
-// ✅ import sendNotification
-const { handler: sendNotification } = require("sendNotification");
-
-console.log("📅 bookAppointment function - updated with notification");
+console.log("📅 bookAppointment function - updated with notification 2025-08-27");
 
 exports.handler = async function (event) {
   try {
@@ -33,12 +30,14 @@ exports.handler = async function (event) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          error: "Missing required parameters: contactId, calendarId, startTime, endTime",
+          error:
+            "Missing required parameters: contactId, calendarId, startTime, endTime",
         }),
       };
     }
 
-    const payload = {
+    // --- create booking ---
+    const bookingPayload = {
       title: "Booking from Restyle website",
       meetingLocationType: "custom",
       meetingLocationId: "custom_0",
@@ -49,20 +48,19 @@ exports.handler = async function (event) {
       toNotify: true,
       ignoreFreeSlotValidation: true,
       calendarId,
-      locationId: "7LYI93XFo8j4nZfswlaz", // ⚡ your fixed location
+      locationId: "7LYI93XFo8j4nZfswlaz",
       contactId,
       startTime,
       endTime,
     };
 
     if (assignedUserId) {
-      payload.assignedUserId = assignedUserId;
+      bookingPayload.assignedUserId = assignedUserId;
     }
 
-    // ✅ Create booking
-    const response = await axios.post(
+    const bookingRes = await axios.post(
       "https://services.leadconnectorhq.com/calendars/events/appointments",
-      payload,
+      bookingPayload,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -72,33 +70,65 @@ exports.handler = async function (event) {
       }
     );
 
-    const newBooking = response.data || null;
+    const newBooking = bookingRes.data || null;
     console.log("📅 Extracted booking:", newBooking);
 
     let dbInsert = null;
-    let notifResult = null;
-
     try {
       if (!newBooking || !newBooking.id) {
         throw new Error("Invalid booking data received from API");
       }
-
-      // ✅ Save booking to Supabase
       dbInsert = await saveBookingToDB(newBooking);
-
-      // ✅ Trigger notification setup
-      try {
-        const notifEvent = { queryStringParameters: { id: calendarId } };
-        notifResult = await sendNotification(notifEvent);
-        console.log("📧 Notification triggered:", notifResult.body);
-      } catch (notifErr) {
-        console.error("❌ Failed to trigger notification:", notifErr.message);
-        notifResult = { error: notifErr.message };
-      }
     } catch (dbError) {
       console.error("❌ DB save failed:", dbError.message);
-      console.error("❌ Booking data that failed:", JSON.stringify(newBooking, null, 2));
+      console.error(
+        "❌ Booking data that failed:",
+        JSON.stringify(newBooking, null, 2)
+      );
       dbInsert = { error: dbError.message };
+    }
+
+    // --- send notification email ---
+    try {
+      const notifPayload = [
+        {
+          receiverType: "contact",
+          channel: "email",
+          notificationType: "booked",
+          isActive: true,
+          subject: "Your booking is confirmed 🎉",
+          body: `
+            Hi,<br><br>
+            Thank you for booking with us!<br><br>
+            👉 <a href="https://restyle-93b772.webflow.io/bookings?id=${contactId}">
+              View Your Booking
+            </a><br><br>
+            See you soon!
+          `,
+          fromAddress: "noreply@yourdomain.com",
+          fromName: "Restyle Team",
+        },
+      ];
+
+      const notifRes = await axios.post(
+        `https://services.leadconnectorhq.com/calendars/${calendarId}/notifications`,
+        notifPayload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Version: "2021-04-15",
+          },
+        }
+      );
+
+      console.log("📧 Notification triggered:", notifRes.data);
+    } catch (notifErr) {
+      console.error(
+        "❌ Failed to trigger notification:",
+        notifErr.response?.data || notifErr.message
+      );
     }
 
     return {
@@ -108,10 +138,9 @@ exports.handler = async function (event) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        message: "✅ Booking success",
-        response: response.data,
+        message: "✅ Booking success + notification sent",
+        response: newBooking,
         dbInsert,
-        notifResult,
       }),
     };
   } catch (err) {
