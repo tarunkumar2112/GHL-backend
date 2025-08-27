@@ -106,7 +106,7 @@ exports.handler = async function (event) {
             </a><br><br>
             See you soon!
           `,
-          fromAddress: "tarunkumarz211286@gmail.com",
+          fromAddress: "sutej@autograf.ca",
           fromName: "Restyle Team",
         },
       ];
