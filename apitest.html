@@ -237,7 +237,7 @@
       showSkeletons()
 
       try {
-        const res = await fetch(`/.netlify/functions/bookings?contactId=${encodeURIComponent(contactId)}`, {
+        const res = await fetch(`https://restyle-api.netlify.app/.netlify/functions/bookings?contactId=${encodeURIComponent(contactId)}`, {
           headers: { "Accept": "application/json" },
           cache: "no-store",
         })
