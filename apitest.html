@@ -4,44 +4,211 @@
   <meta charset="UTF-8" />
   <title>My Bookings</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://unpkg.com/lucide@latest"></script> <!-- icons -->
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; background: #f9fafb; }
-    h1 { margin: 0 0 16px; font-size: 1.5rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
-    .card { background: #fff; padding: 16px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.08); display: flex; flex-direction: column; justify-content: space-between; }
-    .card h2 { margin: 0 0 8px; font-size: 1.2rem; color: #111827; }
-    .meta { font-size: 0.9rem; color: #555; margin-bottom: 8px; }
-    .actions { margin-top: auto; display: flex; gap: 8px; }
-    button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border: 0; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
-    .reschedule { background: #0d6efd; color: #fff; }
-    .delete { background: #dc3545; color: #fff; }
+    body { 
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; 
+      margin: 0;
+      padding: 24px;
+      background: #f8fafc;
+    }
+    h1 { 
+      margin: 0 0 12px; 
+      color: #1e293b;
+      font-size: 2rem;
+      font-weight: 700;
+    }
+    .hint { 
+      color: #64748b; 
+      margin-bottom: 24px; 
+      font-size: 1.1rem;
+    }
+    
+    /* Replaced table styles with grid layout */
+    .bookings-grid {
+      display: grid;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    
+    .booking-card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+      border: 1px solid #e2e8f0;
+      transition: all 0.2s ease;
+    }
+    
+    .booking-card:hover {
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      transform: translateY(-1px);
+    }
+    
+    .booking-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    
+    .booking-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #1e293b;
+      margin: 0;
+    }
+    
+    .booking-status {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    
+    .booking-details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    
+    .detail-item {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .detail-label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #64748b;
+      margin-bottom: 4px;
+    }
+    
+    .detail-value {
+      font-size: 1rem;
+      color: #1e293b;
+      font-weight: 500;
+    }
+    
+    .booking-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      padding-top: 16px;
+      border-top: 1px solid #e2e8f0;
+    }
+    
+    button { 
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px; 
+      border: 0; 
+      border-radius: 8px; 
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.875rem;
+      transition: all 0.2s ease;
+    }
+    
+    .reschedule { 
+      background: #3b82f6; 
+      color: #fff; 
+    }
+    
+    .reschedule:hover {
+      background: #2563eb;
+      transform: translateY(-1px);
+    }
+    
+    .delete { 
+      background: #ef4444; 
+      color: #fff; 
+    }
+    
+    .delete:hover {
+      background: #dc2626;
+      transform: translateY(-1px);
+    }
+    
+    .muted { 
+      color: #64748b; 
+      font-size: 1.1rem;
+      text-align: center;
+      padding: 40px;
+    }
+    
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 40px;
+      color: #64748b;
+      font-size: 1.1rem;
+    }
+    
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #e2e8f0;
+      border-top: 2px solid #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    /* Added responsive design */
+    @media (max-width: 768px) {
+      body { padding: 16px; }
+      h1 { font-size: 1.75rem; }
+      .booking-details { grid-template-columns: 1fr; }
+      .booking-actions { flex-direction: column; }
+      button { justify-content: center; }
+    }
   </style>
 </head>
 <body>
   <h1>My Bookings</h1>
-  <div id="status">Loading...</div>
-  <div id="grid" class="grid"></div>
+  <div class="hint">Manage your bookings below. You can reschedule or delete an appointment.</div>
+  <div id="status" class="muted">Loading...</div>
+  <div id="bookings-container"></div>
 
   <script>
     const contactId = new URLSearchParams(location.search).get("id")
     const statusEl = document.getElementById("status")
-    const grid = document.getElementById("grid")
+    const bookingsContainer = document.getElementById("bookings-container")
 
     if (!contactId) {
-      statusEl.textContent = "❌ Missing contact ID in URL"
+      statusEl.textContent = "❌ Missing contact ID in URL. Try ?id=CONTACT_ID"
     } else {
       loadBookings()
     }
 
     async function loadBookings() {
-      statusEl.textContent = "Loading..."
-      grid.innerHTML = ""
+      statusEl.innerHTML = `<div class="loading"><div class="spinner"></div>Loading bookings...</div>`
+      bookingsContainer.innerHTML = ""
 
       try {
-        const res = await fetch(`https://restyle-api.netlify.app/.netlify/functions/bookings?contactId=${encodeURIComponent(contactId)}`)
+        const res = await fetch(`/.netlify/functions/bookings?contactId=${encodeURIComponent(contactId)}`, {
+          headers: { "Accept": "application/json" },
+          cache: "no-store",
+        })
         const data = await res.json()
-        if (!res.ok) throw new Error(data.error || "Failed to fetch")
+
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to load bookings")
+        }
 
         const bookings = data.bookings || []
         if (bookings.length === 0) {
@@ -50,102 +217,157 @@
         }
 
         statusEl.textContent = ""
-        for (const b of bookings) {
-          const card = await renderCard(b)
-          grid.appendChild(card)
-        }
+        await renderBookings(bookings)
       } catch (err) {
         console.error(err)
-        statusEl.textContent = "❌ Failed to load bookings"
+        statusEl.textContent = "❌ Failed to load bookings."
       }
     }
 
-    async function renderCard(b) {
-      // fetch service details
-      let serviceName = "—"
-      let eventTitle = "—"
-      try {
-        const calRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Calendarget?id=${b.calendar_id}`)
-        const calData = await calRes.json()
-        if (calData.calendar) {
-          serviceName = calData.calendar.name || "—"
-          eventTitle = calData.calendar.eventTitle || "—"
-        }
-      } catch (e) { console.warn("Calendar fetch failed", e) }
+    async function renderBookings(bookings) {
+      const bookingsWithDetails = await Promise.all(
+        bookings.map(async (booking) => {
+          const details = { ...booking }
+          
+          // Fetch service details from calendar
+          if (booking.calendar_id) {
+            try {
+              const calendarRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Calendarget?id=${booking.calendar_id}`)
+              const calendarData = await calendarRes.json()
+              if (calendarRes.ok && calendarData.calendar) {
+                details.serviceName = calendarData.calendar.name
+                details.serviceDescription = calendarData.calendar.description?.replace(/<[^>]*>/g, '') // Remove HTML tags
+              }
+            } catch (err) {
+              console.error('Failed to fetch calendar details:', err)
+              details.serviceName = 'Unknown Service'
+            }
+          }
+          
+          // Fetch staff details if assigned_user_id exists
+          if (booking.assigned_user_id) {
+            try {
+              const staffRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Staffget?id=${booking.assigned_user_id}`)
+              const staffData = await staffRes.json()
+              if (staffRes.ok && staffData.name) {
+                details.assignedStaffName = staffData.name
+              }
+            } catch (err) {
+              console.error('Failed to fetch staff details:', err)
+              details.assignedStaffName = 'Unknown Staff'
+            }
+          }
+          
+          return details
+        })
+      )
+      
+      bookingsContainer.innerHTML = `<div class="bookings-grid">${bookingsWithDetails.map(renderBookingCard).join('')}</div>`
+    }
 
-      // fetch staff details
-      let staffName = "—"
-      if (b.assigned_user_id) {
-        try {
-          const staffRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Staff?id=${b.assigned_user_id}`)
-          const staffData = await staffRes.json()
-          staffName = staffData.name || `${staffData.firstName || ""} ${staffData.lastName || ""}`
-        } catch (e) { console.warn("Staff fetch failed", e) }
-      }
-
-      const div = document.createElement("div")
-      div.className = "card"
-      div.innerHTML = `
-        <div>
-          <h2>${escapeHtml(serviceName)}</h2>
-          <div class="meta">Event: ${escapeHtml(eventTitle)}</div>
-          <div class="meta">Staff: ${escapeHtml(staffName)}</div>
-          <div class="meta">Status: ${escapeHtml(b.status || "-")} / ${escapeHtml(b.appointment_status || "-")}</div>
-        </div>
-        <div class="actions">
-          <button class="reschedule" onclick="rescheduleBooking('${b.id}', '${b.calendar_id}')">
-            <i data-lucide="calendar-clock"></i> Reschedule
-          </button>
-          <button class="delete" onclick="deleteBooking('${b.id}')">
-            <i data-lucide="trash-2"></i> Delete
-          </button>
+    function renderBookingCard(booking) {
+      return `
+        <div class="booking-card">
+          <div class="booking-header">
+            <h3 class="booking-title">${escapeHtml(booking.title || 'Untitled Booking')}</h3>
+            <span class="booking-status">${escapeHtml(booking.appointment_status || booking.status || 'Pending')}</span>
+          </div>
+          
+          <div class="booking-details">
+            <div class="detail-item">
+              <span class="detail-label">Service</span>
+              <span class="detail-value">${escapeHtml(booking.serviceName || 'Loading...')}</span>
+            </div>
+            
+            <div class="detail-item">
+              <span class="detail-label">Contact Name</span>
+              <span class="detail-value">${escapeHtml(booking.contact_name || 'N/A')}</span>
+            </div>
+            
+            <div class="detail-item">
+              <span class="detail-label">Assigned Staff</span>
+              <span class="detail-value">${escapeHtml(booking.assignedStaffName || 'Loading...')}</span>
+            </div>
+            
+            <div class="detail-item">
+              <span class="detail-label">Address</span>
+              <span class="detail-value">${escapeHtml(booking.address || 'N/A')}</span>
+            </div>
+            
+            <div class="detail-item">
+              <span class="detail-label">Calendar ID</span>
+              <span class="detail-value">${escapeHtml(booking.calendar_id || 'N/A')}</span>
+            </div>
+          </div>
+          
+          <div class="booking-actions">
+            <button class="reschedule" onclick="rescheduleBooking('${booking.id}', '${booking.calendar_id || ''}')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+                <path d="M21 3v5h-5"/>
+              </svg>
+              Reschedule
+            </button>
+            <button class="delete" onclick="deleteBooking('${booking.id}')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18"/>
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+              </svg>
+              Delete
+            </button>
+          </div>
         </div>
       `
-      lucide.createIcons(div) // replace <i data-lucide="...">
-      return div
     }
 
     async function deleteBooking(id) {
       if (!confirm("Are you sure you want to delete this booking?")) return
-      const res = await fetch("https://restyle-api.netlify.app/.netlify/functions/bookings", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, contactId }),
-      })
-      if (!res.ok) {
-        alert("❌ Delete failed")
-        return
+
+      try {
+        const res = await fetch("/.netlify/functions/bookings", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, contactId }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || "Delete failed")
+
+        alert("✅ Booking deleted")
+        await loadBookings()
+      } catch (err) {
+        console.error(err)
+        alert("❌ Failed to delete booking")
       }
-      alert("✅ Booking deleted")
-      loadBookings()
     }
 
-    async function rescheduleBooking(id, calendarId) {
-      const startTime = prompt("New start time (ISO 8601, e.g. 2025-09-01T10:00:00Z):")
+    async function rescheduleBooking(oldBookingId, calendarId) {
+      const startTime = prompt("Enter new start time (ISO 8601, e.g. 2025-09-01T10:00:00Z):")
       if (!startTime) return
-      const endTime = prompt("New end time (ISO 8601, e.g. 2025-09-01T10:30:00Z):")
+      const endTime = prompt("Enter new end time (ISO 8601, e.g. 2025-09-01T10:30:00Z):")
       if (!endTime) return
 
-      const url = new URL("https://restyle-api.netlify.app/.netlify/functions/Appointment", location.origin)
-      url.searchParams.set("contactId", contactId)
-      url.searchParams.set("calendarId", calendarId)
-      url.searchParams.set("startTime", startTime)
-      url.searchParams.set("endTime", endTime)
+      try {
+        const url = new URL("https://restyle-api.netlify.app/.netlify/functions/Appointment", location.origin)
+        url.searchParams.set("contactId", contactId)
+        if (calendarId) url.searchParams.set("calendarId", calendarId)
+        url.searchParams.set("startTime", startTime)
+        url.searchParams.set("endTime", endTime)
 
-      const createRes = await fetch(url.toString(), { method: "GET" })
-      const createData = await createRes.json()
-      if (!createRes.ok) {
-        alert("❌ Reschedule failed")
-        return
+        const createRes = await fetch(url.toString(), { method: "GET" })
+        const createData = await createRes.json()
+        if (!createRes.ok) throw new Error(createData.details || createData.error || "Failed to create new appointment")
+
+        await deleteBooking(oldBookingId)
+        alert("✅ Rescheduled successfully")
+      } catch (err) {
+        console.error(err)
+        alert("❌ Reschedule failed: " + err.message)
       }
-
-      await deleteBooking(id)
-      alert("✅ Rescheduled successfully")
-      loadBookings()
     }
 
     function escapeHtml(str) {
-      return String(str || "").replace(/[&<>"'`=\/]/g, s => ({
+      return String(str).replace(/[&<>"'`=\/]/g, s => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
         "'": "&#39;", "/": "&#x2F;", "`": "&#x60;", "=": "&#x3D;"
       }[s]))
