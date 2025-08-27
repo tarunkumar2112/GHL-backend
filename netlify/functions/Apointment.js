@@ -2,7 +2,7 @@ const axios = require("axios");
 const { getValidAccessToken } = require("../../supbase");
 const { saveBookingToDB } = require("../../supabaseAppointments");
 
-console.log("📅 bookAppointment function - updated with notification 2025-08-27");
+console.log("📅 bookAppointment function - updated with notification logging 2025-08-27");
 
 exports.handler = async function (event) {
   try {
@@ -89,6 +89,7 @@ exports.handler = async function (event) {
     }
 
     // --- send notification email ---
+    let notifResponse = null;
     try {
       const notifPayload = [
         {
@@ -123,12 +124,18 @@ exports.handler = async function (event) {
         }
       );
 
-      console.log("📧 Notification triggered:", notifRes.data);
+      console.log("📧 Notification API Response:", notifRes.status, notifRes.data);
+      notifResponse = notifRes.data;
     } catch (notifErr) {
-      console.error(
-        "❌ Failed to trigger notification:",
-        notifErr.response?.data || notifErr.message
-      );
+      console.error("❌ Failed to trigger notification:");
+      console.error("Status:", notifErr.response?.status || "N/A");
+      console.error("Data:", notifErr.response?.data || notifErr.message);
+
+      notifResponse = {
+        error: true,
+        status: notifErr.response?.status || 500,
+        details: notifErr.response?.data || notifErr.message,
+      };
     }
 
     return {
@@ -138,9 +145,10 @@ exports.handler = async function (event) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        message: "✅ Booking success + notification sent",
-        response: newBooking,
+        message: "✅ Booking success (notification attempted)",
+        booking: newBooking,
         dbInsert,
+        notification: notifResponse,
       }),
     };
   } catch (err) {
