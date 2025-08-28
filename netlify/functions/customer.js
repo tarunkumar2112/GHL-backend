@@ -15,9 +15,11 @@ exports.handler = async (event) => {
     }
 
     const params = event.queryStringParameters || {}
-    const { firstName, lastName, email, phone, notes } = params
+    const { firstName, lastName, phone, notes } = params
+    // ❌ removed email destructure
 
-    if (!firstName || !lastName || !email || !phone) {
+    // ✅ email no longer required
+    if (!firstName || !lastName || !phone) {
       return {
         statusCode: 400,
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
@@ -30,13 +32,13 @@ exports.handler = async (event) => {
     const body = {
       firstName,
       lastName,
-      email,
       phone,
       locationId,
       source: "public api",
       country: "US",
       tags: notes ? [notes] : [],
     }
+    // ❌ removed email field
 
     const response = await axios.post("https://services.leadconnectorhq.com/contacts/", body, {
       headers: {
