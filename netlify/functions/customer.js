@@ -15,10 +15,9 @@ exports.handler = async (event) => {
     }
 
     const params = event.queryStringParameters || {}
-    const { firstName, lastName, phone, notes } = params
-    // ❌ removed email destructure
+    const { firstName, lastName, email, phone, notes } = params
 
-    // ✅ email no longer required
+    // ✅ email is no longer required
     if (!firstName || !lastName || !phone) {
       return {
         statusCode: 400,
@@ -38,7 +37,11 @@ exports.handler = async (event) => {
       country: "US",
       tags: notes ? [notes] : [],
     }
-    // ❌ removed email field
+
+    // 👉 only add email if present
+    if (email) {
+      body.email = email
+    }
 
     const response = await axios.post("https://services.leadconnectorhq.com/contacts/", body, {
       headers: {
