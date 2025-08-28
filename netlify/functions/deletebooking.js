@@ -4,13 +4,29 @@ const { getValidAccessToken } = require("../../supbase")
 const { deleteBookingFromDB } = require("../../deleteSupabase")
 
 exports.handler = async function (event) {
+  // 🔹 Handle preflight OPTIONS request
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
+      body: "Preflight OK",
+    }
+  }
+
   try {
     const accessToken = await getValidAccessToken()
 
     if (!accessToken) {
       return {
         statusCode: 401,
-        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ error: "Access token missing" }),
       }
     }
@@ -21,12 +37,15 @@ exports.handler = async function (event) {
     if (!bookingId) {
       return {
         statusCode: 400,
-        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ error: "Missing required parameter: bookingId" }),
       }
     }
 
-    // 🔴 Delete booking from LeadConnector
+    // 🔴 Delete booking in LeadConnector
     let apiDeleteResult = null
     try {
       const response = await axios.delete(
@@ -39,28 +58,34 @@ exports.handler = async function (event) {
         }
       )
       apiDeleteResult = response.data
-      console.log("✅ LeadConnector booking deleted:", apiDeleteResult)
     } catch (apiError) {
-      console.error("❌ Failed to delete booking in LeadConnector:", apiError.response?.data || apiError.message)
       return {
         statusCode: apiError.response?.status || 500,
-        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "Failed to delete booking from API", details: apiError.response?.data || apiError.message }),
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          error: "Failed to delete booking from API",
+          details: apiError.response?.data || apiError.message,
+        }),
       }
     }
 
-    // 🗑️ Delete booking from Supabase
+    // 🗑️ Delete booking in Supabase
     let supabaseDeleteResult = null
     try {
       supabaseDeleteResult = await deleteBookingFromDB(bookingId)
     } catch (dbErr) {
-      console.error("❌ Failed to delete booking in Supabase:", dbErr.message)
       supabaseDeleteResult = { error: dbErr.message }
     }
 
     return {
       statusCode: 200,
-      headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         success: true,
         message: "Booking deleted successfully",
@@ -69,10 +94,12 @@ exports.handler = async function (event) {
       }),
     }
   } catch (err) {
-    console.error("❌ deletebooking.js error:", err.message)
     return {
       statusCode: 500,
-      headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ error: "Unexpected server error", details: err.message }),
     }
   }
