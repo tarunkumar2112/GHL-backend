@@ -1,118 +1,37 @@
-const axios = require('axios');
-const { getValidAccessToken } = require('../../supbase'); 
-const { setCache } = require('../../supbaseCache'); // cache helper
+const { createClient } = require('@supabase/supabase-js');
 
-exports.handler = async function (event) {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-  };
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-  // ✅ Handle preflight request
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: ''
-    };
+// 📝 Save cache
+async function setCache(key, data, ttlMinutes = 5) {
+  await supabase.from('slots_cache').upsert({
+    cache_key: key,
+    data,
+    updated_at: new Date().toISOString()
+  });
+}
+
+// 🔍 Get cache
+async function getCache(key, ttlMinutes = 5) {
+  const { data, error } = await supabase
+    .from('slots_cache')
+    .select('*')
+    .eq('cache_key', key)
+    .single();
+
+  if (error || !data) return null;
+
+  const updatedAt = new Date(data.updated_at).getTime();
+  const now = Date.now();
+
+  if (now - updatedAt > ttlMinutes * 60 * 1000) {
+    return null; // expired
   }
 
-  try {
-    const accessToken = await getValidAccessToken();
+  return data.data;
+}
 
-    if (!accessToken) {
-      return {
-        statusCode: 401,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Access token missing' })
-      };
-    }
-
-    const groupId = event.queryStringParameters?.id;
-    const locationId = '7LYI93XFo8j4nZfswlaz'; // hardcoded, can make dynamic later
-
-    if (!groupId) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Missing groupId in query string (?id=...)' })
-      };
-    }
-
-    // 🔹 Step 1: calendars list
-    const response = await axios.get(
-      `https://services.leadconnectorhq.com/calendars/?groupId=${groupId}&locationId=${locationId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Version: '2021-04-15'
-        }
-      }
-    );
-
-    const calendars = response.data?.calendars || [];
-
-    // 🔹 Step 2: prefetch slots in background (non-blocking)
-    (async () => {
-      const today = new Date();
-      const startDate = today.setHours(0, 0, 0, 0);
-      const endDate = new Date(today);
-      endDate.setDate(endDate.getDate() + 10);
-
-      await Promise.all(calendars.map(async (cal) => {
-        const calId = cal.id;
-        try {
-          const slotsUrl = `https://services.leadconnectorhq.com/calendars/${calId}/free-slots?startDate=${startDate}&endDate=${endDate.getTime()}`;
-
-          const slotRes = await axios.get(slotsUrl, {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              Version: '2021-04-15'
-            }
-          });
-
-          // Format slots (Mountain Time)
-          const formattedSlots = {};
-          Object.entries(slotRes.data).forEach(([date, value]) => {
-            if (date === 'traceId') return;
-            if (!value.slots?.length) return;
-            formattedSlots[date] = value.slots.map(slot =>
-              new Date(slot).toLocaleString('en-US', {
-                timeZone: 'America/Denver',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: true
-              })
-            );
-          });
-
-          const cacheKey = `prefetch:${calId}:${startDate}:${endDate.getTime()}`;
-          await setCache(cacheKey, { calendarId: calId, formattedSlots }, 10);
-
-          console.log(`✅ Cached next 10 days slots for calendar ${calId}`);
-        } catch (slotErr) {
-          console.error(`❌ Prefetch failed for ${calId}:`, slotErr.message);
-        }
-      }));
-    })();
-
-    // 🔹 Step 3: return calendars immediately
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify(response.data)
-    };
-
-  } catch (err) {
-    const status = err.response?.status || 500;
-    const message = err.response?.data || err.message;
-    console.error("❌ Error fetching calendars:", message);
-
-    return {
-      statusCode: status,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: message })
-    };
-  }
-};
+module.exports = { getCache, setCache };
