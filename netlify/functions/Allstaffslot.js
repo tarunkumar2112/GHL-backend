@@ -2,6 +2,20 @@ const axios = require('axios');
 const { getValidAccessToken } = require('../../supbase');
 const { getCache, setCache } = require('../../supbaseCache'); // ✅ cache helpers
 
+// 🔄 Retry helper for 429 Too Many Requests
+async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
+  try {
+    return await axios.get(url, { headers });
+  } catch (err) {
+    if (err.response?.status === 429 && retries > 0) {
+      console.warn(`429 received, retrying in ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+      return fetchWithRetry(url, headers, retries - 1, delay * 2);
+    }
+    throw err;
+  }
+}
+
 exports.handler = async function (event) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -41,21 +55,22 @@ exports.handler = async function (event) {
     // 🔹 Cache key
     const cacheKey = `allstaff:${calendarId}:${startDate}:${endDate}:${userId || 'all'}`;
 
-    // 1. Try cache first
-    const cached = await getCache(cacheKey, 5);
+    // 1. Try cache first (15 min TTL)
+    const cached = await getCache(cacheKey, 15);
     if (cached) {
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(cached) };
     }
 
-    // 2. API call if no cache
+    // 2. API call with retry if no cache
     const baseUrl = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots`;
     const params = new URLSearchParams({ startDate, endDate });
     if (userId) params.append('userId', userId);
 
     const fullUrl = `${baseUrl}?${params.toString()}`;
 
-    const response = await axios.get(fullUrl, {
-      headers: { Authorization: `Bearer ${accessToken}`, Version: '2021-04-15' }
+    const response = await fetchWithRetry(fullUrl, {
+      Authorization: `Bearer ${accessToken}`,
+      Version: '2021-04-15'
     });
 
     const slotsData = response.data;
@@ -76,8 +91,8 @@ exports.handler = async function (event) {
 
     const responseData = { calendarId, formattedSlots };
 
-    // 3. Save in cache
-    await setCache(cacheKey, responseData, 5);
+    // 3. Save in cache (15 min TTL)
+    await setCache(cacheKey, responseData, 15);
 
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(responseData) };
 
