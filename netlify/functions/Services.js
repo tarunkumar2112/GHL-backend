@@ -3,16 +3,28 @@ const { getValidAccessToken } = require('../../supbase');
 const { setCache } = require('../../supbaseCache'); // cache helper
 
 exports.handler = async function (event) {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  };
+
+  // ✅ Handle preflight request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: ''
+    };
+  }
+
   try {
     const accessToken = await getValidAccessToken();
 
     if (!accessToken) {
       return {
         statusCode: 401,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json'
-        },
+        headers: corsHeaders,
         body: JSON.stringify({ error: 'Access token missing' })
       };
     }
@@ -23,10 +35,7 @@ exports.handler = async function (event) {
     if (!groupId) {
       return {
         statusCode: 400,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json'
-        },
+        headers: corsHeaders,
         body: JSON.stringify({ error: 'Missing groupId in query string (?id=...)' })
       };
     }
@@ -90,10 +99,7 @@ exports.handler = async function (event) {
     // 🔹 Step 3: return calendars normally
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
+      headers: corsHeaders,
       body: JSON.stringify(response.data)
     };
 
@@ -104,10 +110,7 @@ exports.handler = async function (event) {
 
     return {
       statusCode: status,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
+      headers: corsHeaders,
       body: JSON.stringify({ error: message })
     };
   }
