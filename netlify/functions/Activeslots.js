@@ -2,6 +2,20 @@ const axios = require('axios');
 const { getValidAccessToken } = require('../../supbase');
 const { getCache, setCache } = require('../../supbaseCache'); // ✅ cache helpers
 
+// 🔄 Retry helper for 429 Too Many Requests
+async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
+  try {
+    return await axios.get(url, { headers });
+  } catch (err) {
+    if (err.response?.status === 429 && retries > 0) {
+      console.warn(`429 received, retrying in ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+      return fetchWithRetry(url, headers, retries - 1, delay * 2);
+    }
+    throw err;
+  }
+}
+
 exports.handler = async function (event) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -23,13 +37,14 @@ exports.handler = async function (event) {
 
     const { calendarId = 'woILyX2cMn3skq1MaTgL', userId } = event.queryStringParameters || {};
 
-    // 🔹 Helper: fetch slots
+    // 🔹 Helper: fetch slots with retry
     const fetchSlots = async (start, end) => {
       let url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${end}`;
       if (userId) url += `&userId=${userId}`;
 
-      const response = await axios.get(url, {
-        headers: { Authorization: `Bearer ${accessToken}`, Version: '2021-04-15' }
+      const response = await fetchWithRetry(url, {
+        Authorization: `Bearer ${accessToken}`,
+        Version: '2021-04-15'
       });
       return response.data;
     };
@@ -63,7 +78,7 @@ exports.handler = async function (event) {
     const cacheKeyToday = `active:${calendarId}:${userId || 'all'}:${todayStart}:${todayEnd}`;
 
     // 1. Try cache for today
-    const cachedToday = await getCache(cacheKeyToday, 2);
+    const cachedToday = await getCache(cacheKeyToday, 10);
     if (cachedToday) {
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(cachedToday) };
     }
@@ -75,7 +90,7 @@ exports.handler = async function (event) {
       const responseData = { calendarId, activeDay: 'today', slots: todayFormatted };
 
       // Save cache
-      await setCache(cacheKeyToday, responseData, 2);
+      await setCache(cacheKeyToday, responseData, 10);
 
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(responseData) };
     }
@@ -86,7 +101,7 @@ exports.handler = async function (event) {
     const { start: tomorrowStart, end: tomorrowEnd } = getDayRange(new Date(tomorrow));
     const cacheKeyTomorrow = `active:${calendarId}:${userId || 'all'}:${tomorrowStart}:${tomorrowEnd}`;
 
-    const cachedTomorrow = await getCache(cacheKeyTomorrow, 2);
+    const cachedTomorrow = await getCache(cacheKeyTomorrow, 10);
     if (cachedTomorrow) {
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(cachedTomorrow) };
     }
@@ -96,7 +111,7 @@ exports.handler = async function (event) {
 
     const responseData = { calendarId, activeDay: 'tomorrow', slots: tomorrowFormatted };
 
-    await setCache(cacheKeyTomorrow, responseData, 2);
+    await setCache(cacheKeyTomorrow, responseData, 10);
 
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(responseData) };
 
