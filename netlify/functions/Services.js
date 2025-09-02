@@ -116,7 +116,8 @@ exports.handler = async function (event) {
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify(response.data)
+      body: JSON.stringify(response.data),
+      prefetchedSlots: prefetchedData
     };
 
   } catch (err) {
