@@ -2,6 +2,20 @@ const axios = require('axios');
 const { getValidAccessToken } = require('../../supbase'); 
 const { setCache } = require('../../supbaseCache'); // cache helper
 
+// 🔄 Retry helper for 429 Too Many Requests
+async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
+  try {
+    return await axios.get(url, { headers });
+  } catch (err) {
+    if (err.response?.status === 429 && retries > 0) {
+      console.warn(`429 received (Services.js), retrying in ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+      return fetchWithRetry(url, headers, retries - 1, delay * 2);
+    }
+    throw err;
+  }
+}
+
 exports.handler = async function (event) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -53,23 +67,24 @@ exports.handler = async function (event) {
 
     const calendars = response.data?.calendars || [];
 
-    // 🔹 Step 2: prefetch slots in background (non-blocking)
+    // 🔹 Step 2: prefetch slots in background (sequential with throttling)
     (async () => {
       const today = new Date();
       const startDate = today.setHours(0, 0, 0, 0);
       const endDate = new Date(today);
       endDate.setDate(endDate.getDate() + 10);
 
-      await Promise.all(calendars.map(async (cal) => {
+      for (const cal of calendars) {
         const calId = cal.id;
         try {
           const slotsUrl = `https://services.leadconnectorhq.com/calendars/${calId}/free-slots?startDate=${startDate}&endDate=${endDate.getTime()}`;
 
-          const slotRes = await axios.get(slotsUrl, {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              Version: '2021-04-15'
-            }
+          // throttle each request (500ms apart)
+          await new Promise(r => setTimeout(r, 500));
+
+          const slotRes = await fetchWithRetry(slotsUrl, {
+            Authorization: `Bearer ${accessToken}`,
+            Version: '2021-04-15'
           });
 
           // Format slots (Mountain Time)
@@ -92,9 +107,9 @@ exports.handler = async function (event) {
 
           console.log(`✅ Cached next 10 days slots for calendar ${calId}`);
         } catch (slotErr) {
-          console.error(`❌ Prefetch failed for ${calId}:`, slotErr.message);
+          console.error(`❌ Prefetch failed for ${cal.id}:`, slotErr.message);
         }
-      }));
+      }
     })();
 
     // 🔹 Step 3: return calendars immediately
