@@ -25,11 +25,7 @@ exports.handler = async function (event) {
 
   // ✅ Handle preflight request
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: ''
-    };
+    return { statusCode: 200, headers: corsHeaders, body: '' };
   }
 
   try {
@@ -44,7 +40,7 @@ exports.handler = async function (event) {
     }
 
     const groupId = event.queryStringParameters?.id;
-    const locationId = '7LYI93XFo8j4nZfswlaz'; // hardcoded, can make dynamic later
+    const locationId = '7LYI93XFo8j4nZfswlaz'; // hardcoded for now
 
     if (!groupId) {
       return {
@@ -54,7 +50,7 @@ exports.handler = async function (event) {
       };
     }
 
-    // 🔹 Step 1: calendars list
+    // 🔹 Step 1: fetch calendars
     const response = await axios.get(
       `https://services.leadconnectorhq.com/calendars/?groupId=${groupId}&locationId=${locationId}`,
       {
@@ -67,17 +63,16 @@ exports.handler = async function (event) {
 
     const calendars = response.data?.calendars || [];
 
-    // 🔹 Step 2: prefetch slots in background (sequential with throttling)
+    // 🔹 Step 2: prefetch slots in background (does not block response)
     (async () => {
-      const today = new Date();
-      const startDate = today.setHours(0, 0, 0, 0);
-      const endDate = new Date(today);
+      const startDate = new Date();
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + 10);
 
       for (const cal of calendars) {
-        const calId = cal.id;
         try {
-          const slotsUrl = `https://services.leadconnectorhq.com/calendars/${calId}/free-slots?startDate=${startDate}&endDate=${endDate.getTime()}`;
+          const slotsUrl = `https://services.leadconnectorhq.com/calendars/${cal.id}/free-slots?startDate=${startDate.getTime()}&endDate=${endDate.getTime()}`;
 
           // throttle each request (500ms apart)
           await new Promise(r => setTimeout(r, 500));
@@ -87,7 +82,7 @@ exports.handler = async function (event) {
             Version: '2021-04-15'
           });
 
-          // Format slots (Mountain Time)
+          // Format slots to Mountain Time
           const formattedSlots = {};
           Object.entries(slotRes.data).forEach(([date, value]) => {
             if (date === 'traceId') return;
@@ -102,10 +97,10 @@ exports.handler = async function (event) {
             );
           });
 
-          const cacheKey = `prefetch:${calId}:${startDate}:${endDate.getTime()}`;
-          await setCache(cacheKey, { calendarId: calId, formattedSlots }, 10);
+          const cacheKey = `prefetch:${cal.id}:${startDate.getTime()}:${endDate.getTime()}`;
+          await setCache(cacheKey, { calendarId: cal.id, formattedSlots }, 10);
 
-          console.log(`✅ Cached next 10 days slots for calendar ${calId}`);
+          console.log(`✅ Cached next 10 days slots for calendar ${cal.id}`);
         } catch (slotErr) {
           console.error(`❌ Prefetch failed for ${cal.id}:`, slotErr.message);
         }
@@ -116,8 +111,7 @@ exports.handler = async function (event) {
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify(response.data),
-      prefetchedSlots: prefetchedData
+      body: JSON.stringify(response.data)
     };
 
   } catch (err) {
