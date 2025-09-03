@@ -2,7 +2,7 @@ const axios = require('axios');
 const { getValidAccessToken } = require('../../supbase');
 const { getCache, setCache } = require('../../supbaseCache');
 
-// 🔄 Retry helper for 429 Too Many Requests
+// 🔄 Retry helper
 async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   try {
     return await axios.get(url, { headers });
@@ -23,114 +23,83 @@ exports.handler = async function (event) {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization'
   };
 
-  // ✅ Handle preflight
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders, body: '' };
   }
 
   try {
     const accessToken = await getValidAccessToken();
-
     if (!accessToken) {
-      return {
-        statusCode: 401,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Access token missing' })
-      };
+      return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: 'Access token missing' }) };
     }
 
-    const { calendarId = 'woILyX2cMn3skq1MaTgL', userId, weekOffset = 0 } = event.queryStringParameters || {};
+    const { calendarId = 'woILyX2cMn3skq1MaTgL', userId } = event.queryStringParameters || {};
 
-    // 🔹 Helper: Get week range (Monday to Sunday)
-    const getWeekRange = (weekOffset = 0) => {
-      const today = new Date();
-      const currentDay = today.getDay(); // 0 = Sunday, 1 = Monday
-      
-      // Calculate Monday of current week
-      const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay;
-      const monday = new Date(today);
-      monday.setDate(today.getDate() + mondayOffset + (weekOffset * 7));
-      monday.setHours(0, 0, 0, 0);
-      
-      // Calculate Sunday of current week
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      sunday.setHours(23, 59, 59, 999);
-      
-      return {
-        start: monday.getTime(),
-        end: sunday.getTime(),
-        monday: monday.toISOString().split('T')[0],
-        sunday: sunday.toISOString().split('T')[0]
-      };
+    // 🔹 Helpers
+    const fetchSlots = async (start, end) => {
+      let url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${end}`;
+      if (userId) url += `&userId=${userId}`;
+      const response = await fetchWithRetry(url, {
+        Authorization: `Bearer ${accessToken}`,
+        Version: '2021-04-15'
+      });
+      return response.data;
     };
 
-    // 🔹 Get week range
-    const { start, end, monday, sunday } = getWeekRange(parseInt(weekOffset));
-    
-    // 🔹 Cache key
-    const cacheKey = `weekly:${calendarId}:${monday}:${sunday}:${userId || 'all'}`;
+    const formatSlots = (slotsData) => {
+      const formatted = {};
+      Object.entries(slotsData).forEach(([date, value]) => {
+        if (date === 'traceId') return;
+        if (!value.slots?.length) return;
+        formatted[date] = value.slots.map(slot =>
+          new Date(slot).toLocaleString('en-US', {
+            timeZone: 'America/Denver',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })
+        );
+      });
+      return formatted;
+    };
 
-    // 1. Try cache first (30 min TTL for weekly data)
-    const cached = await getCache(cacheKey, 30);
-    if (cached) {
-      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(cached) };
+    const getDayRange = (day) => ({
+      start: new Date(day.setHours(0, 0, 0, 0)).getTime(),
+      end: new Date(day.setHours(23, 59, 59, 999)).getTime()
+    });
+
+    // ✅ Loop for 7 days (today + next 6 days)
+    const weeklySlots = {};
+    for (let i = 0; i < 7; i++) {
+      const day = new Date();
+      day.setDate(day.getDate() + i);
+      const { start, end } = getDayRange(new Date(day));
+
+      const cacheKey = `weekly:${calendarId}:${userId || 'all'}:${start}:${end}`;
+      let dayData = await getCache(cacheKey, 10);
+
+      if (!dayData) {
+        const fetched = await fetchSlots(start, end);
+        const formatted = formatSlots(fetched);
+        dayData = { date: day.toDateString(), slots: formatted };
+        await setCache(cacheKey, dayData, 10);
+      }
+
+      weeklySlots[day.toDateString()] = dayData.slots;
     }
-
-    // 2. API call with retry
-    const baseUrl = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots`;
-    const params = new URLSearchParams({ 
-      startDate: start.toString(), 
-      endDate: end.toString() 
-    });
-    if (userId) params.append('userId', userId);
-
-    const fullUrl = `${baseUrl}?${params.toString()}`;
-
-    const response = await fetchWithRetry(fullUrl, {
-      Authorization: `Bearer ${accessToken}`,
-      Version: '2021-04-15'
-    });
-
-    const slotsData = response.data;
-
-    // 🕒 Format slots to Mountain Time (same as other functions)
-    const formattedSlots = {};
-    Object.entries(slotsData).forEach(([date, value]) => {
-      if (date === 'traceId') return;
-      formattedSlots[date] = value.slots.map(slot =>
-        new Date(slot).toLocaleString('en-US', {
-          timeZone: 'America/Denver',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        })
-      );
-    });
-
-    const responseData = { 
-      calendarId, 
-      weekRange: { monday, sunday },
-      weekOffset: parseInt(weekOffset),
-      totalDays: 7,
-      slots: formattedSlots,
-      rawData: slotsData // 🔹 Original API response without filtering
-    };
-
-    // 3. Save in cache (30 min TTL)
-    await setCache(cacheKey, responseData, 30);
-
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(responseData) };
-
-  } catch (err) {
-    const status = err.response?.status || 500;
-    const message = err.response?.data || err.message;
-    console.error('❌ Error fetching weekly slots:', message);
 
     return {
-      statusCode: status,
+      statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify({ error: message })
+      body: JSON.stringify({ calendarId, range: '7days', slots: weeklySlots })
+    };
+
+  } catch (err) {
+    console.error('❌ Error in WeeklySlots:', err.response?.data || err.message);
+    return {
+      statusCode: err.response?.status || 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Failed to fetch weekly slots', details: err.response?.data || err.message })
     };
   }
 };
