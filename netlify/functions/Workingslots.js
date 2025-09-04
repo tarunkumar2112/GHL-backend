@@ -16,17 +16,6 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// 🔹 Business hours per weekday (0=Sun … 6=Sat)
-const businessHours = {
-  0: { start: "09:00", end: "19:00" }, // Sunday
-  1: { start: "09:00", end: "19:00" }, // Monday
-  2: { start: "09:00", end: "19:00" }, // Tuesday
-  3: { start: "09:00", end: "19:00" }, // Wednesday
-  4: { start: "11:00", end: "19:00" }, // Thursday
-  5: { start: "09:00", end: "19:00" }, // Friday
-  6: { start: "09:00", end: "19:00" }  // Saturday
-};
-
 exports.handler = async function (event) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -70,41 +59,20 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    // 🔹 Helper: format slots (filter by business hours in MST)
+    // 🔹 Helper: format slots (MST/MDT)
     const formatSlots = (slotsData) => {
       const formatted = {};
       Object.entries(slotsData).forEach(([date, value]) => {
         if (date === 'traceId') return;
         if (!value.slots?.length) return;
-
-        const day = new Date(date + "T00:00:00Z");
-        const dayOfWeek = new Date(day.toLocaleString("en-US", { timeZone: "America/Edmonton" })).getDay();
-        const hours = businessHours[dayOfWeek];
-        if (!hours) return;
-
-        const [startHour, startMinute] = hours.start.split(":").map(Number);
-        const [endHour, endMinute] = hours.end.split(":").map(Number);
-
-        const startMinutes = startHour * 60 + startMinute;
-        const endMinutes = endHour * 60 + endMinute;
-
-        const validSlots = value.slots.filter(slot => {
-          const local = new Date(slot).toLocaleString("en-US", { timeZone: "America/Edmonton" });
-          const d = new Date(local);
-          const minutes = d.getHours() * 60 + d.getMinutes();
-          return minutes >= startMinutes && minutes <= endMinutes;
-        });
-
-        if (validSlots.length) {
-          formatted[date] = validSlots.map(slot =>
-            new Date(slot).toLocaleString('en-US', {
-              timeZone: 'America/Edmonton',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            })
-          );
-        }
+        formatted[date] = value.slots.map(slot =>
+          new Date(slot).toLocaleString('en-US', {
+            timeZone: 'America/Denver', // Mountain Time
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })
+        );
       });
       return formatted;
     };
@@ -124,19 +92,19 @@ exports.handler = async function (event) {
       }
     }
 
-    // ✅ Build next 30 calendar days (no skipping weekends)
-    const daysToCheck = 30;
-    const allDays = [];
-    for (let i = 0; i < daysToCheck; i++) {
-      const checkDate = new Date(startDate);
-      checkDate.setDate(startDate.getDate() + i);
-      allDays.push(checkDate);
+    // ✅ Build next 30 days including weekends
+    const totalDays = 30;
+    const daysToCheck = [];
+    for (let i = 0; i < totalDays; i++) {
+      const d = new Date(startDate);
+      d.setDate(startDate.getDate() + i);
+      daysToCheck.push(d);
     }
 
-    const { start: startOfRange } = getDayRange(allDays[0]);
-    const { end: endOfRange } = getDayRange(allDays[allDays.length - 1]);
+    const { start: startOfRange } = getDayRange(daysToCheck[0]);
+    const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
-    const cacheKey = `days30:${calendarId}:${userId || 'all'}:${startOfRange}:${endOfRange}`;
+    const cacheKey = `allDays:${calendarId}:${userId || 'all'}:${startOfRange}:${endOfRange}`;
 
     // 1. Try cache
     const cached = await getCache(cacheKey, 30);
@@ -148,9 +116,9 @@ exports.handler = async function (event) {
     const slotsData = await fetchSlots(startOfRange, endOfRange);
     const allFormatted = formatSlots(slotsData);
 
-    // Filter only the selected 30 days
+    // Filter only the selected days
     const filtered = {};
-    allDays.forEach(d => {
+    daysToCheck.forEach(d => {
       const key = d.toISOString().split('T')[0];
       if (allFormatted[key]) {
         filtered[key] = allFormatted[key];
@@ -159,7 +127,7 @@ exports.handler = async function (event) {
 
     const responseData = {
       calendarId,
-      activeDay: '30days',
+      activeDay: 'allDays',
       startDate: startDate.toISOString().split('T')[0],
       slots: filtered
     };
