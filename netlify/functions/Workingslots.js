@@ -1,6 +1,5 @@
 const axios = require('axios');
 const { getValidAccessToken } = require('../../supbase');
-const { getCache, setCache } = require('../../supbaseCache');
 
 // 🔄 Retry helper for 429 Too Many Requests
 async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
@@ -104,15 +103,7 @@ exports.handler = async function (event) {
     const { start: startOfRange } = getDayRange(daysToCheck[0]);
     const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
-    const cacheKey = `allDays:${calendarId}:${userId || 'all'}:${startOfRange}:${endOfRange}`;
-
-    // 1. Try cache
-    const cached = await getCache(cacheKey, 30);
-    if (cached) {
-      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(cached) };
-    }
-
-    // 2. Fetch slots
+    // Fetch slots
     const slotsData = await fetchSlots(startOfRange, endOfRange);
     const allFormatted = formatSlots(slotsData);
 
@@ -131,9 +122,6 @@ exports.handler = async function (event) {
       startDate: startDate.toISOString().split('T')[0],
       slots: filtered
     };
-
-    // 3. Cache result
-    await setCache(cacheKey, responseData, 30);
 
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(responseData) };
 
