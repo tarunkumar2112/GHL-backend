@@ -1,790 +1,580 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>My Bookings</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body { 
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; 
-      margin: 0;
-      padding: 24px;
-      background: #f8fafc;
+<style>
+  :root{
+    --brand:#751a29;      /* orange for Reschedule */
+    --brand-900:#852535;  /* orange hover */
+    --dark:#000000;       /* black for Cancel */
+    --dark-900:#0a0a0a;   /* black hover */
+    --muted:#6b7280;
+    --border:#e5e7eb;
+    --card:#ffffff;
+    --bg:#ffffff;
+    --text:#111827;
+    --chip:#f3f4f6;
+    --chip-text:#374151;
+  }
+
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+  .container{ max-width:1100px; margin:0 auto; padding:clamp(16px,2.5vw,28px) }
+
+  /* Brand + heading */
+  .brand{ display:flex; align-items:center; justify-content:center; flex-direction:column; gap:10px; text-align:center; margin-bottom:4px }
+  .brand-logo{ height:56px; width:auto; object-fit:contain }
+  .brand-title{ font-weight:700; letter-spacing:.02em; text-transform:uppercase; font-size:15px }
+  .page-title{ margin:8px 0 0; font-size:clamp(22px,3.6vw,28px); line-height:1.2; font-weight:700 }
+
+  /* Greeting */
+  .greet{ display:grid; gap:6px; justify-items:center; margin-top:8px }
+  .greet-name{ font-size:clamp(18px,3vw,22px); font-weight:700; letter-spacing:.2px }
+  .greet-contact{ font-size:13px; color:var(--muted) }
+  .chip{ display:inline-flex; align-items:center; gap:6px; background:var(--chip); color:var(--chip-text); padding:4px 10px; border-radius:999px; font-weight:600; text-decoration:none }
+  .greet-help{ margin:2px 0 0; color:var(--muted); font-size:14px }
+
+  /* Buttons */
+  .btn{ display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 16px; border-radius:10px; border:1px solid transparent; cursor:pointer; font-weight:600; font-size:.95rem; transition:.18s ease; text-decoration:none; user-select:none }
+  .btn-primary{ background:var(--brand); color:#fff }
+  .btn-primary:hover{ background:var(--brand-900); transform:translateY(-1px) }
+  .btn-primary:disabled{ background:#9ca3af; cursor:not-allowed; transform:none }
+  .btn-dark{ background:var(--dark); color:#fff }
+  .btn-dark:hover{ background:var(--dark-900); transform:translateY(-1px) }
+  .btn-dark:disabled{ background:#9ca3af; cursor:not-allowed; transform:none }
+
+  /* Always single column list */
+  .bookings-grid{ display:grid; grid-template-columns:1fr; gap:20px; margin-top:20px }
+
+  .booking-card{ background:var(--card); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow:0 1px 2px rgb(0 0 0 / .05); transition:box-shadow .18s ease, transform .18s ease }
+  .booking-card:hover{ box-shadow:0 6px 20px rgb(0 0 0 / .08); transform:translateY(-1px) }
+
+  .booking-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding-bottom:12px; border-bottom:1px solid var(--border); margin-bottom:12px; flex-wrap:wrap }
+  .booking-title{ font-size:1.15rem; font-weight:700; margin:0; letter-spacing:.2px }
+  .booking-pill{ display:inline-flex; align-items:center; padding:4px 12px; border-radius:999px; font-size:.85rem; font-weight:600; background:#e5e7eb; color:#111827; white-space:nowrap }
+  .pill-cancelled{ background:#f3f4f6; color:#6b7280 }
+
+  .booking-details{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px }
+  @media (max-width:700px){ .booking-details{ grid-template-columns:1fr } }
+  .detail-item{ display:flex; flex-direction:column }
+  .detail-label{ font-size:.85rem; color:var(--muted); font-weight:600; margin-bottom:4px }
+  .detail-value{ font-size:1rem; font-weight:500 }
+
+  .booking-actions{ display:flex; gap:10px; justify-content:flex-end; padding-top:12px; border-top:1px solid var(--border); flex-wrap:wrap }
+  @media (max-width:600px){ .booking-actions{ flex-direction:column } .btn{ width:100% } }
+
+  .muted{ color:var(--muted); text-align:center; margin-top:8px; font-size:1rem }
+
+  /* Time chip */
+  .time-notification{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; font-size:.75rem; font-weight:700; margin-left:8px }
+  .time-notification.urgent{ background:#fef2f2; color:#b91c1c }
+  .time-notification.warning{ background:#fffbeb; color:#b45309 }
+  .time-notification.normal{ background:#f0fdf4; color:#15803d }
+  .time-notification.closed{ background:#f3f4f6; color:#374151 }
+
+  /* Skeletons */
+  .skeleton{ background:linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 50%,#f3f4f6 75%); background-size:200% 100%; animation:loading 1.4s infinite; border-radius:8px }
+  @keyframes loading{ 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+  .skeleton-card{ background:var(--card); border:1px solid var(--border); border-radius:16px; padding:22px; margin-bottom:16px }
+  .skeleton-title{ height:22px; width:60%; margin-bottom:14px }
+  .skeleton-detail{ height:14px; margin-bottom:10px }
+  .skeleton-detail.short{ width:40% } .skeleton-detail.medium{ width:60% } .skeleton-detail.long{ width:80% }
+
+  /* Toast Notifications */
+  .toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 400px;
+  }
+
+  .toast {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transform: translateX(100%);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .toast.show {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  .toast.success {
+    border-left: 4px solid #10b981;
+  }
+
+  .toast.error {
+    border-left: 4px solid #ef4444;
+  }
+
+  .toast.warning {
+    border-left: 4px solid #f59e0b;
+  }
+
+  .toast.info {
+    border-left: 4px solid #3b82f6;
+  }
+
+  .toast-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .toast-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .toast-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin: 0 0 4px 0;
+    color: var(--text);
+  }
+
+  .toast-message {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.4;
+  }
+
+  .toast-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    flex-shrink: 0;
+  }
+
+  .toast-close:hover {
+    background: var(--chip);
+  }
+
+  .toast-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: var(--brand);
+    border-radius: 0 0 12px 12px;
+    animation: toastProgress 5s linear forwards;
+  }
+
+  @keyframes toastProgress {
+    from { width: 100%; }
+    to { width: 0%; }
+  }
+
+  @media (max-width: 480px) {
+    .toast-container {
+      top: 10px;
+      right: 10px;
+      left: 10px;
+      max-width: none;
     }
-    
-    /* Added tab navigation styles */
-    .tabs {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 24px;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    
-    .tab {
-      padding: 12px 24px;
-      background: none;
-      border: none;
-      border-bottom: 2px solid transparent;
-      cursor: pointer;
-      font-weight: 500;
-      color: #64748b;
-      transition: all 0.2s ease;
-    }
-    
-    .tab.active {
-      color: #751a29;
-      border-bottom-color: #751a29;
-    }
-    
-    .tab:hover {
-      color: #751a29;
-    }
-    
-    /* Added priority indicator styles */
-    .priority-indicators {
-      display: none;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 16px;
-      margin-top: 20px;
-    }
-    
-    .priority-indicators.active {
-      display: grid;
-    }
-    
-    .priority-card {
-      background: white;
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-      border: 1px solid #e2e8f0;
-    }
-    
-    .priority-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-    
-    .priority-dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-    }
-    
-    .priority-dot.urgent { background: #ef4444; }
-    .priority-dot.warning { background: #f59e0b; }
-    .priority-dot.normal { background: #10b981; }
-    
-    .priority-title {
-      font-weight: 600;
-      color: #1e293b;
-    }
-    
-    .priority-count {
-      font-size: 2rem;
-      font-weight: 700;
-      color: #1e293b;
-      margin-bottom: 8px;
-    }
-    
-    .priority-description {
-      color: #64748b;
-      font-size: 0.875rem;
-    }
-    
-    /* Added toast notification styles */
-    .toast {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #10b981;
-      color: white;
-      padding: 16px 24px;
-      border-radius: 8px;
-      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-      z-index: 1000;
-      transform: translateX(100%);
-      transition: transform 0.3s ease;
-    }
-    
-    .toast.show {
-      transform: translateX(0);
-    }
-    
-    .toast.error {
-      background: #ef4444;
-    }
-    
-    /* Added time notification styles */
-    .time-notification {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 12px;
-      font-size: 0.75rem;
-      font-weight: 500;
-      margin-left: 8px;
-    }
-    
-    .time-notification.urgent {
-      background: #fef2f2;
-      color: #dc2626;
-    }
-    
-    .time-notification.warning {
-      background: #fffbeb;
-      color: #d97706;
-    }
-    
-    .time-notification.normal {
-      background: #f0fdf4;
-      color: #16a34a;
-    }
-    
-    .time-notification.closed {
-      background: #f1f5f9;
-      color: #475569;
-    }
-    
-    .bookings-grid {
-      display: grid;
-      gap: 20px;
-      margin-top: 20px;
-    }
-    
-    .booking-card {
-      background: white;
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-      border: 1px solid #e2e8f0;
-      transition: all 0.2s ease;
-    }
-    
-    .booking-card:hover {
-      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-      transform: translateY(-1px);
-    }
-    
-    .booking-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 12px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    
-    .booking-title {
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: #1e293b;
-      margin: 0;
-    }
-    
-    .booking-status {
-      display: inline-flex;
-      align-items: center;
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 0.875rem;
-      font-weight: 500;
-      background: #dbeafe;
-      color: #1e40af;
-    }
-    
-    .booking-details {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 16px;
-      margin-bottom: 16px;
-    }
-    
-    .detail-item {
-      display: flex;
-      flex-direction: column;
-    }
-    
-    .detail-label {
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: #64748b;
-      margin-bottom: 4px;
-    }
-    
-    .detail-value {
-      font-size: 1rem;
-      color: #1e293b;
-      font-weight: 500;
-    }
-    
-    .tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 4px;
-    }
-    
-    .tag {
-      background: #f1f5f9;
-      color: #475569;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 0.75rem;
-      font-weight: 500;
-    }
-    
-    .booking-actions {
-      display: flex;
-      gap: 12px;
-      justify-content: flex-end;
-      padding-top: 12px;
-      border-top: 1px solid #e2e8f0;
-    }
-    
-    button { 
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 16px; 
-      border: 0; 
-      border-radius: 8px; 
-      cursor: pointer;
-      font-weight: 500;
-      font-size: 0.875rem;
-      transition: all 0.2s ease;
-      background: #751a29;
-      color: white;
-    }
-    
-    button:hover {
-      background: #5c1520;
-      transform: translateY(-1px);
-    }
-    
-    button:disabled {
-      background: #94a3b8;
-      cursor: not-allowed;
-      transform: none;
-    }
-    
-    .delete {
-      background: #ef4444;
-    }
-    
-    .delete:hover {
-      background: #dc2626;
-    }
-    
-    .delete:disabled {
-      background: #94a3b8;
-    }
-    
-    .muted { 
-      color: #64748b; 
-      font-size: 1.1rem;
-      text-align: center;
-      padding: 40px;
-    }
-    
-    .loading {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      padding: 40px;
-      color: #64748b;
-      font-size: 1.1rem;
-    }
-    
-    /* Skeleton loading styles */
-    .skeleton {
-      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-      background-size: 200% 100%;
-      animation: loading 1.5s infinite;
-      border-radius: 4px;
-    }
-    
-    @keyframes loading {
-      0% { background-position: 200% 0; }
-      100% { background-position: -200% 0; }
-    }
-    
-    .skeleton-card {
-      background: white;
-      border-radius: 12px;
-      padding: 24px;
-      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-      border: 1px solid #e2e8f0;
-      margin-bottom: 20px;
-    }
-    
-    .skeleton-title {
-      height: 24px;
-      width: 60%;
-      margin-bottom: 16px;
-    }
-    
-    .skeleton-detail {
-      height: 16px;
-      margin-bottom: 12px;
-    }
-    
-    .skeleton-detail.short { width: 40%; }
-    .skeleton-detail.medium { width: 60%; }
-    .skeleton-detail.long { width: 80%; }
-    
-    /* Responsive design */
-    @media (max-width: 768px) {
-      body { padding: 16px; }
-      .booking-details { grid-template-columns: 1fr; }
-      .booking-actions { flex-direction: column; }
-      button { justify-content: center; }
-      .priority-indicators { grid-template-columns: 1fr; }
-    }
-  </style>
+  }
+</style>
 </head>
 <body>
-  <!-- Added tab navigation -->
-  <div class="tabs">
-    <button class="tab active" onclick="switchTab('bookings')">All Bookings</button>
-    <button class="tab" onclick="switchTab('priority')">Priority Overview</button>
+<header class="container brand">
+  <h1 class="page-title">Your bookings</h1>
+  <!-- Improved greeting -->
+  <div id="greeting" class="greet">
+    <div class="greet-name">Loading…</div>
+    <div class="greet-contact"></div>
+    <p class="greet-help">Please wait while we fetch your appointments.</p>
   </div>
-
+</header>
+<main class="container">
   <div id="status" class="muted">Loading...</div>
-  
-  <!-- Added priority indicators section -->
-  <div id="priority-indicators" class="priority-indicators">
-    <div class="priority-card">
-      <div class="priority-header">
-        <div class="priority-dot urgent"></div>
-        <span class="priority-title">Urgent (< 2 hours)</span>
-      </div>
-      <div class="priority-count" id="urgent-count">0</div>
-      <div class="priority-description">Events starting very soon</div>
-    </div>
-    
-    <div class="priority-card">
-      <div class="priority-header">
-        <div class="priority-dot warning"></div>
-        <span class="priority-title">Warning (< 24 hours)</span>
-      </div>
-      <div class="priority-count" id="warning-count">0</div>
-      <div class="priority-description">Events starting today</div>
-    </div>
-    
-    <div class="priority-card">
-      <div class="priority-header">
-        <div class="priority-dot normal"></div>
-        <span class="priority-title">Normal (> 24 hours)</span>
-      </div>
-      <div class="priority-count" id="normal-count">0</div>
-      <div class="priority-description">Future events</div>
-    </div>
-  </div>
-  
   <div id="bookings-container"></div>
+</main>
 
+<!-- Toast Container -->
+<div id="toast-container" class="toast-container"></div>
 <script>
-    const contactId = new URLSearchParams(location.search).get("id")
-    const statusEl = document.getElementById("status")
-    const bookingsContainer = document.getElementById("bookings-container")
-    const priorityIndicators = document.getElementById("priority-indicators")
-    let currentBookings = []
+  const contactId = new URLSearchParams(location.search).get("id");
+  const statusEl = document.getElementById("status");
+  const bookingsContainer = document.getElementById("bookings-container");
+  const greetingEl = document.getElementById("greeting");
+  const toastContainer = document.getElementById("toast-container");
 
-    if (!contactId) {
-      statusEl.textContent = "❌ Missing contact ID in URL. Try ?id=CONTACT_ID"
+  // Toast notification system
+  function showToast(type, title, message, duration = 5000) {
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    
+    const icon = getToastIcon(type);
+    
+    toast.innerHTML = `
+      <div class="toast-icon">${icon}</div>
+      <div class="toast-content">
+        <div class="toast-title">${title}</div>
+        <div class="toast-message">${message}</div>
+      </div>
+      <button class="toast-close" onclick="removeToast(this.parentElement)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+      <div class="toast-progress"></div>
+    `;
+    
+    toastContainer.appendChild(toast);
+    
+    // Trigger animation
+    setTimeout(() => toast.classList.add('show'), 100);
+    
+    // Auto remove
+    setTimeout(() => removeToast(toast), duration);
+  }
+
+  function getToastIcon(type) {
+    const icons = {
+      success: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>',
+      error: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+      warning: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+      info: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>'
+    };
+    return icons[type] || icons.info;
+  }
+
+  function removeToast(toast) {
+    toast.classList.remove('show');
+    setTimeout(() => {
+      if (toast.parentElement) {
+        toast.parentElement.removeChild(toast);
+      }
+    }, 300);
+  }
+
+  if (!contactId) {
+    greetingEl.innerHTML = `
+      <div class="greet-name">We couldn’t find your link</div>
+      <div class="greet-contact"></div>
+      <p class="greet-help">This URL is not valid. Please use your personal link from Restyle.</p>
+    `;
+  } else {
+    Promise.all([fetchContact(), loadBookings()]);
+  }
+
+  async function fetchContact(){
+    try{
+      const res = await fetch(`https://restyle-api.netlify.app//.netlify/functions/getContact?id=${contactId}`);
+      const data = await res.json();
+      const name = (res.ok && data.contact)
+        ? [data.contact.firstName, data.contact.lastName].filter(Boolean).join(' ') || 'there'
+        : 'there';
+
+      const phone = (res.ok && data.contact && data.contact.phone) ? String(data.contact.phone) : '';
+      const tel = phone.replace(/\D/g,''); // dialable
+
+      greetingEl.innerHTML = `
+        <div class="greet-name">Welcome ${escapeHtml(name)}</div>
+        <div class="greet-contact">
+          ${phone ? `<a class="chip" href="tel:${tel}">${escapeHtml(phone)}</a>` : ``}
+        </div>
+        <p class="greet-help"> Here's what's coming up with RESTYLE SALOON. Need to make changes? Just reschedule or cancel below.</p>
+      `;
+    }catch(e){
+      greetingEl.innerHTML = `
+        <div class="greet-name">Welcome</div>
+        <div class="greet-contact"></div>
+        <p class="greet-help">Below are your appointments.</p>
+      `;
+    }
+  }
+
+  /* -------- helpers -------- */
+  function getTimeUntilStart(startTime) {
+    if (!startTime) return null;
+    const start = new Date(startTime);
+    const now = new Date();
+    return start.getTime() - now.getTime();
+  }
+  function getPriorityLevel(startTime) {
+    const ms = getTimeUntilStart(startTime);
+    if (ms === null) return 'normal';
+    const hrs = ms / 36e5;
+    if (hrs < 0) return 'closed';
+    if (hrs < 2) return 'urgent';
+    if (hrs < 24) return 'warning';
+    return 'normal';
+  }
+  function formatTimeRemaining(startTime) {
+    const ms = getTimeUntilStart(startTime);
+    if (ms === null) return 'Unknown';
+    if (ms < 0) return 'Event closed';
+    const hours = Math.floor(ms / 36e5);
+    const minutes = Math.floor((ms % 36e5) / 6e4);
+    if (hours > 24) {
+      const days = Math.floor(hours / 24);
+      return `${days}d ${hours % 24}h remaining`;
+    } else if (hours > 0) {
+      return `${hours}h ${minutes}m remaining`;
     } else {
-      loadBookings()
+      return `${minutes}m remaining`;
     }
+  }
 
-    function switchTab(tab) {
-      const tabs = document.querySelectorAll('.tab')
-      tabs.forEach(t => t.classList.remove('active'))
-      event.target.classList.add('active')
-      
-      if (tab === 'bookings') {
-        bookingsContainer.style.display = 'block'
-        priorityIndicators.classList.remove('active')
-      } else {
-        bookingsContainer.style.display = 'none'
-        priorityIndicators.classList.add('active')
-        updatePriorityIndicators()
+  function showSkeletons() {
+    bookingsContainer.innerHTML = `
+      <div class="skeleton-card">
+        <div class="skeleton skeleton-title"></div>
+        <div class="skeleton skeleton-detail medium"></div>
+        <div class="skeleton skeleton-detail short"></div>
+        <div class="skeleton skeleton-detail long"></div>
+        <div class="skeleton skeleton-detail medium"></div>
+      </div>
+      <div class="skeleton-card">
+        <div class="skeleton skeleton-title"></div>
+        <div class="skeleton skeleton-detail short"></div>
+        <div class="skeleton skeleton-detail long"></div>
+        <div class="skeleton skeleton-detail medium"></div>
+        <div class="skeleton skeleton-detail short"></div>
+      </div>
+    `;
+  }
+
+  async function loadBookings() {
+    statusEl.textContent = "";
+    showSkeletons();
+
+    try {
+      const res = await fetch(`https://restyle-api.netlify.app/.netlify/functions/bookings?contactId=${encodeURIComponent(contactId)}`, {
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load bookings");
+
+      const list = data.bookings || [];
+      if (list.length === 0) {
+        bookingsContainer.innerHTML = "";
+        statusEl.textContent = "No bookings found.";
+        return;
       }
-    }
 
-    function showToast(message, isError = false) {
-      const toast = document.createElement('div')
-      toast.className = `toast ${isError ? 'error' : ''}`
-      toast.textContent = message
-      document.body.appendChild(toast)
-      
-      setTimeout(() => toast.classList.add('show'), 100)
-      setTimeout(() => {
-        toast.classList.remove('show')
-        setTimeout(() => document.body.removeChild(toast), 300)
-      }, 3000)
-    }
+      // Enrich each booking (same flow that worked for you)
+      const enriched = await Promise.all(
+        list.map(async (booking) => {
+          const details = { ...booking };
 
-    function getTimeUntilStart(startTime) {
-      if (!startTime) return null
-      const start = new Date(startTime)
-      const now = new Date()
-      return start.getTime() - now.getTime()
-    }
-
-    function getPriorityLevel(startTime) {
-      const timeUntil = getTimeUntilStart(startTime)
-      if (timeUntil === null) return 'normal'
-      
-      const hoursUntil = timeUntil / (1000 * 60 * 60)
-      
-      if (hoursUntil < 0) return 'closed'
-      if (hoursUntil < 2) return 'urgent'
-      if (hoursUntil < 24) return 'warning'
-      return 'normal'
-    }
-
-    function formatTimeRemaining(startTime) {
-      const timeUntil = getTimeUntilStart(startTime)
-      if (timeUntil === null) return 'Unknown'
-      
-      if (timeUntil < 0) return 'Event closed'
-      
-      const hours = Math.floor(timeUntil / (1000 * 60 * 60))
-      const minutes = Math.floor((timeUntil % (1000 * 60 * 60)) / (1000 * 60))
-      
-      if (hours > 24) {
-        const days = Math.floor(hours / 24)
-        return `${days}d ${hours % 24}h remaining`
-      } else if (hours > 0) {
-        return `${hours}h ${minutes}m remaining`
-      } else {
-        return `${minutes}m remaining`
-      }
-    }
-
-    function updatePriorityIndicators() {
-      const counts = { urgent: 0, warning: 0, normal: 0 }
-      
-      currentBookings.forEach(booking => {
-        const priority = getPriorityLevel(booking.startTime)
-        if (counts[priority] !== undefined) {
-          counts[priority]++
-        }
-      })
-      
-      document.getElementById('urgent-count').textContent = counts.urgent
-      document.getElementById('warning-count').textContent = counts.warning
-      document.getElementById('normal-count').textContent = counts.normal
-    }
-
-    function showSkeletons() {
-      bookingsContainer.innerHTML = `
-        <div class="skeleton-card">
-          <div class="skeleton skeleton-title"></div>
-          <div class="skeleton skeleton-detail medium"></div>
-          <div class="skeleton skeleton-detail short"></div>
-          <div class="skeleton skeleton-detail long"></div>
-          <div class="skeleton skeleton-detail medium"></div>
-        </div>
-        <div class="skeleton-card">
-          <div class="skeleton skeleton-title"></div>
-          <div class="skeleton skeleton-detail short"></div>
-          <div class="skeleton skeleton-detail long"></div>
-          <div class="skeleton skeleton-detail medium"></div>
-          <div class="skeleton skeleton-detail short"></div>
-        </div>
-      `
-    }
-
-    async function loadBookings() {
-      statusEl.textContent = ""
-      showSkeletons()
-
-      try {
-        const res = await fetch(`https://restyle-api.netlify.app/.netlify/functions/bookings?contactId=${encodeURIComponent(contactId)}`, {
-          headers: { "Accept": "application/json" },
-          cache: "no-store",
-        })
-        const data = await res.json()
-
-        if (!res.ok) {
-          throw new Error(data.error || "Failed to load bookings")
-        }
-
-        const bookings = data.bookings || []
-        if (bookings.length === 0) {
-          statusEl.textContent = "No bookings found."
-          bookingsContainer.innerHTML = ""
-          return
-        }
-
-        statusEl.textContent = ""
-        await renderBookings(bookings)
-      } catch (err) {
-        console.error(err)
-        statusEl.textContent = "❌ Failed to load bookings."
-        bookingsContainer.innerHTML = ""
-      }
-    }
-
-    async function renderBookings(bookings) {
-      const bookingsWithDetails = await Promise.all(
-        bookings.map(async (booking) => {
-          const details = { ...booking }
-          
+          // calendar -> service name
           if (booking.calendar_id) {
             try {
-              const calendarRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Calendarget?id=${booking.calendar_id}`)
-              const calendarData = await calendarRes.json()
-              if (calendarRes.ok && calendarData.calendar) {
-                details.serviceName = calendarData.calendar.name
-                details.serviceDescription = calendarData.calendar.description?.replace(/<[^>]*>/g, '') // Remove HTML tags
-                details.eventColor = calendarData.calendar.eventColor
+              const calRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Calendarget?id=${booking.calendar_id}`);
+              const cal = await calRes.json();
+              if (calRes.ok && cal.calendar) {
+                details.serviceName = cal.calendar.name || 'Untitled Booking';
               }
-            } catch (err) {
-              console.error('Failed to fetch calendar details:', err)
-              details.serviceName = 'Unknown Service'
-            }
+            } catch {}
           }
-          
-          // Fetch contact details
+
+          // appointment details
           try {
-            const contactRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/getContact?id=${contactId}`)
-            const contactData = await contactRes.json()
-            if (contactRes.ok && contactData.contact) {
-              details.contactFirstName = contactData.contact.firstName
-              details.contactLastName = contactData.contact.lastName
-              details.contactEmail = contactData.contact.email
-              details.contactPhone = contactData.contact.phone
-              details.contactTags = contactData.contact.tags || []
-              details.contactNotes = contactData.contact.notes
+            const bRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/getBooking?id=${booking.id}`);
+            const bData = await bRes.json();
+            if (bRes.ok && bData.appointment) {
+              details.startTime = bData.appointment.startTime;
+              details.endTime = bData.appointment.endTime;
+              details.appointmentStatus = bData.appointment.appointmentStatus;
+              details.assignedUserId = bData.appointment.assignedUserId;
             }
-          } catch (err) {
-            console.error('Failed to fetch contact details:', err)
-          }
-          
-          // Fetch booking details
-          try {
-            const bookingRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/getBooking?id=${booking.id}`)
-            const bookingData = await bookingRes.json()
-            if (bookingRes.ok && bookingData.appointment) {
-              details.startTime = bookingData.appointment.startTime
-              details.endTime = bookingData.appointment.endTime
-              details.appointmentStatus = bookingData.appointment.appointmentStatus
-              details.assignedUserId = bookingData.appointment.assignedUserId
-            }
-          } catch (err) {
-            console.error('Failed to fetch booking details:', err)
-          }
-          
-          // Fetch staff details if assigned_user_id exists
+          } catch {}
+
+          // staff details
           if (details.assignedUserId) {
             try {
-              const staffRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Staff?id=${details.assignedUserId}`)
-              const staffData = await staffRes.json()
-              if (staffRes.ok && staffData.firstName) {
-                details.assignedStaffFirstName = staffData.firstName
-                details.assignedStaffLastName = staffData.lastName
-                details.assignedStaffEmail = staffData.email
+              const sRes = await fetch(`https://restyle-api.netlify.app/.netlify/functions/Staff?id=${details.assignedUserId}`);
+              const sData = await sRes.json();
+              if (sRes.ok && sData.firstName) {
+                details.assignedStaffFirstName = sData.firstName;
+                details.assignedStaffLastName = sData.lastName;
               }
-            } catch (err) {
-              console.error('Failed to fetch staff details:', err)
-            }
+            } catch {}
           }
-          
-          return details
-        })
-      )
-      
-      const sortedBookings = bookingsWithDetails.sort((a, b) => {
-        const aStart = new Date(a.startTime)
-        const bStart = new Date(b.startTime)
-        const now = new Date()
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-        const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000)
-        
-        const aIsToday = aStart >= today && aStart < tomorrow
-        const bIsToday = bStart >= today && bStart < tomorrow
-        
-        if (aIsToday && !bIsToday) return -1
-        if (!aIsToday && bIsToday) return 1
-        
-        return aStart - bStart
-      })
-      
-      currentBookings = sortedBookings
-      bookingsContainer.innerHTML = `<div class="bookings-grid">${sortedBookings.map(renderBookingCard).join('')}</div>`
-    }
 
-    function formatToMST(isoString) {
-      if (!isoString) return 'N/A'
-      try {
-        const date = new Date(isoString)
-        return date.toLocaleString('en-US', {
-          timeZone: 'America/Denver',
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          timeZoneName: 'short'
+          return details;
         })
-      } catch (err) {
-        return isoString
+      );
+
+      // Partition AFTER enrichment: confirmed first (soonest → farthest), then cancelled (soonest → farthest)
+      const sortByStart = (a,b) => new Date(a.startTime) - new Date(b.startTime);
+      const confirmed = [];
+      const cancelled = [];
+      for (const b of enriched) {
+        const s = (b.appointmentStatus || '').toLowerCase();
+        if (s === 'confirmed') confirmed.push(b);
+        else if (s === 'cancelled') cancelled.push(b);
       }
-    }
+      confirmed.sort(sortByStart);
+      cancelled.sort(sortByStart);
 
-    function renderBookingCard(booking) {
-      const tags = booking.contactTags && booking.contactTags.length > 0 
-        ? `<div class="tags">${booking.contactTags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`
-        : ''
+      const ordered = [...confirmed, ...cancelled];
 
-      const emailSection = booking.contactEmail && booking.contactEmail.trim() !== '' && booking.contactEmail !== 'N/A' 
-        ? `<div class="detail-item">
-             <span class="detail-label">Email</span>
-             <span class="detail-value">${escapeHtml(booking.contactEmail)}</span>
-           </div>` 
-        : ''
-
-      const isWithinTwoHours = () => {
-        if (!booking.startTime) return false
-        const startTime = new Date(booking.startTime)
-        const now = new Date()
-        const twoHoursFromNow = new Date(now.getTime() + (2 * 60 * 60 * 1000))
-        return startTime <= twoHoursFromNow
+      if (ordered.length === 0) {
+        bookingsContainer.innerHTML = "";
+        statusEl.textContent = "No bookings found.";
+        return;
       }
 
-      const buttonsDisabled = isWithinTwoHours()
-      
-      const priority = getPriorityLevel(booking.startTime)
-      const timeRemaining = formatTimeRemaining(booking.startTime)
-      const timeNotification = `<span class="time-notification ${priority}">${timeRemaining}</span>`
-      
-      const statusText = priority === 'closed' ? 'Event Closed' : (booking.appointmentStatus || 'Pending')
-      const statusClass = priority === 'closed' ? 'closed' : ''
+      bookingsContainer.innerHTML = `<div class="bookings-grid">${ordered.map(renderBookingCard).join('')}</div>`;
+      statusEl.style.display = "none";
+    } catch (err) {
+      console.error(err);
+      bookingsContainer.innerHTML = "";
+      statusEl.textContent = "❌ Failed to load bookings.";
+    }
+  }
 
-      return `
-        <div class="booking-card">
-          <div class="booking-header">
-            <h3 class="booking-title">
-              ${escapeHtml(booking.serviceName || 'Untitled Booking')}
-              ${timeNotification}
-            </h3>
-            <span class="booking-status ${statusClass}">${escapeHtml(statusText)}</span>
+  function formatToEdmonton(isoString) {
+    if (!isoString) return 'N/A';
+    try{
+      const date = new Date(isoString);
+      return date.toLocaleString('en-US', {
+        timeZone: 'America/Edmonton',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZoneName: 'short'
+      });
+    }catch(e){ return isoString }
+  }
+  function formatDuration(startIso, endIso){
+    if(!startIso || !endIso) return '—';
+    const mins = Math.max(0, Math.round((new Date(endIso) - new Date(startIso)) / 60000));
+    const h = Math.floor(mins/60), m = mins%60;
+    if(h && m) return `${h}h ${m}m`;
+    if(h) return `${h}h`;
+    return `${m} mins`;
+  }
+
+  function renderBookingCard(booking) {
+    const withinTwoHours = (() => {
+      if (!booking.startTime) return false;
+      const start = new Date(booking.startTime);
+      const now = new Date();
+      return start.getTime() <= now.getTime() + 2 * 60 * 60 * 1000;
+    })();
+
+    const isCancelled = (booking.appointmentStatus || '').toLowerCase() === 'cancelled';
+    const staffName = `${booking.assignedStaffFirstName || ''} ${booking.assignedStaffLastName || ''}`.trim() || 'Unassigned';
+    const pill = isCancelled
+      ? `<span class="booking-pill pill-cancelled">Cancelled</span>`
+      : `<span class="booking-pill">with ${escapeHtml(staffName)}</span>`;
+
+    // Hide countdown on cancelled bookings
+    const timeChip = isCancelled ? '' :
+      `<span class="time-notification ${getPriorityLevel(booking.startTime)}">${formatTimeRemaining(booking.startTime)}</span>`;
+
+    return `
+      <div class="booking-card">
+        <div class="booking-header">
+          <h3 class="booking-title">${escapeHtml(booking.serviceName || 'Untitled Booking')} ${timeChip}</h3>
+          ${pill}
+        </div>
+
+        <div class="booking-details">
+          <div class="detail-item">
+            <span class="detail-label">Start Time</span>
+            <span class="detail-value">${formatToEdmonton(booking.startTime)}</span>
           </div>
-          
-          <div class="booking-details">
-            <div class="detail-item">
-              <span class="detail-label">Contact Name</span>
-              <span class="detail-value">${escapeHtml((booking.contactFirstName || '') + ' ' + (booking.contactLastName || ''))}</span>
-            </div>
-            
-            ${emailSection}
-            
-            <div class="detail-item">
-              <span class="detail-label">Phone</span>
-              <span class="detail-value">${escapeHtml(booking.contactPhone || 'N/A')}</span>
-            </div>
-            
-            <div class="detail-item">
-              <span class="detail-label">Assigned Staff</span>
-              <span class="detail-value">${escapeHtml((booking.assignedStaffFirstName || '') + ' ' + (booking.assignedStaffLastName || '') || 'Not assigned')}</span>
-            </div>
-            
-            <div class="detail-item">
-              <span class="detail-label">Start Time (MST)</span>
-              <span class="detail-value">${formatToMST(booking.startTime)}</span>
-            </div>
-            
-            <div class="detail-item">
-              <span class="detail-label">End Time (MST)</span>
-              <span class="detail-value">${formatToMST(booking.endTime)}</span>
-            </div>
-            
-            <div class="detail-item">
-              <span class="detail-label">Notes</span>
-              <div class="detail-value">${tags || '<span style="color: #64748b;">No Notes</span>'}</div>
-            </div>
+          <div class="detail-item">
+            <span class="detail-label">Duration</span>
+            <span class="detail-value">${formatDuration(booking.startTime, booking.endTime)}</span>
           </div>
-          
+        </div>
+
+        ${isCancelled ? '' : `
           <div class="booking-actions">
-            <button ${buttonsDisabled ? 'disabled' : ''} onclick="rescheduleBooking('${booking.id}')" ${buttonsDisabled ? 'title="Cannot reschedule - booking starts within 2 hours"' : ''}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <a href="https://ghl-restyle-frontend.netlify.app/update?id=${booking.id}"
+               class="btn btn-primary ${withinTwoHours ? 'disabled' : ''}"
+               ${withinTwoHours ? 'onclick="return false;" title="Cannot reschedule - booking starts within 2 hours"' : ''}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
                 <path d="M21 3v5h-5"/>
               </svg>
               Reschedule
-            </button>
-            <button class="delete" ${buttonsDisabled ? 'disabled' : ''} onclick="deleteBooking('${booking.id}')" ${buttonsDisabled ? 'title="Cannot cancel - booking starts within 2 hours"' : ''}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            </a>
+
+            <button class="btn btn-dark" ${withinTwoHours ? 'disabled title="Cannot cancel - booking starts within 2 hours"' : ''} onclick="cancelBooking('${booking.id}')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path d="M3 6h18"/>
                 <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
                 <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
               </svg>
-              Delete
+              Cancel
             </button>
           </div>
-        </div>
-      `
-    }
+        `}
+      </div>
+    `;
+  }
 
-    async function deleteBooking(id) {
-      if (!confirm("Are you sure you want to delete this booking?")) return
-
-      try {
-        const res = await fetch(`https://restyle-api.netlify.app/.netlify/functions/deletebooking?bookingId=${id}`, {
-          method: "DELETE",
-          headers: { "Accept": "application/json" }
-        })
-        
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}))
-          throw new Error(errorData.error || "Delete failed")
+  async function cancelBooking(id) {
+    if (!confirm("Are you sure you want to cancel this booking?")) return;
+    
+    // Show loading toast
+    showToast('info', 'Cancelling...', 'Please wait while we cancel your appointment.', 3000);
+    
+    try {
+      const res = await fetch(
+        "https://restyle-api.netlify.app/.netlify/functions/cancelbooking",
+        {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ bookingId: id }),
         }
-
-        showToast("✅ Booking deleted successfully")
-        await loadBookings()
-      } catch (err) {
-        console.error(err)
-        showToast("❌ Failed to delete booking: " + err.message, true)
-      }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Cancel failed");
+      
+      await loadBookings(); // refresh
+      showToast('success', 'Appointment Cancelled', 'Your appointment has been successfully cancelled.');
+    } catch (err) {
+      console.error(err);
+      showToast('error', 'Cancellation Failed', 'Failed to cancel appointment: ' + err.message);
     }
+  }
 
-    async function rescheduleBooking(oldBookingId) {
-      const startTime = prompt("Enter new start time (ISO 8601, e.g. 2025-09-01T10:00:00Z):")
-      if (!startTime) return
-      const endTime = prompt("Enter new end time (ISO 8601, e.g. 2025-09-01T10:30:00Z):")
-      if (!endTime) return
-
-      try {
-        const url = new URL("https://restyle-api.netlify.app/.netlify/functions/Appointment", location.origin)
-        url.searchParams.set("contactId", contactId)
-        url.searchParams.set("startTime", startTime)
-        url.searchParams.set("endTime", endTime)
-
-        const createRes = await fetch(url.toString(), { method: "GET" })
-        const createData = await createRes.json()
-        if (!createRes.ok) throw new Error(createData.details || createData.error || "Failed to create new appointment")
-
-        await deleteBooking(oldBookingId)
-        showToast("✅ Rescheduled successfully")
-      } catch (err) {
-        console.error(err)
-        showToast("❌ Reschedule failed: " + err.message, true)
-      }
-    }
-
-    function escapeHtml(str) {
-      return String(str).replace(/[&<>"'`=\/]/g, s => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
-        "'": "&#39;", "/": "&#x2F;", "`": "&#x60;", "=": "&#x3D;"
-      }[s]))
-    }
-  </script>
-</body>
-</html>
+  /* hoisted so it’s safe to call before this line */
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"'`=\/]/g, s => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
+      "'": "&#39;", "/": "&#x2F;", "`": "&#x60;", "=": "&#x3D;"
+    }[s]));
+  }
+</script>
