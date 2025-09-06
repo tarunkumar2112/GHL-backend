@@ -1,6 +1,6 @@
 // netlify/functions/cancelbooking.js
 const axios = require("axios");
-const { getValidAccessToken } = require("../../supbase");
+const { getValidAccessToken } = require("../../supbase"); // Agar isse bhi hataana hai to bata dena
 
 exports.handler = async function (event) {
   // 🔹 Handle preflight OPTIONS request
@@ -72,7 +72,7 @@ exports.handler = async function (event) {
       );
 
       const appointment = getResponse.data;
-      
+
       // Update the appointment status to cancelled
       const updateResponse = await axios.put(
         `https://services.leadconnectorhq.com/calendars/events/${bookingId}`,
@@ -88,7 +88,7 @@ exports.handler = async function (event) {
           },
         }
       );
-      
+
       apiCancelResult = updateResponse.data;
     } catch (apiError) {
       console.error("❌ API cancel error:", apiError.response?.data || apiError.message);
@@ -105,36 +105,6 @@ exports.handler = async function (event) {
       };
     }
 
-    // 🔄 Update booking status in Supabase (mark as cancelled, don't delete)
-    let supabaseUpdateResult = null;
-    try {
-      const { createClient } = require("@supabase/supabase-js");
-      const supabase = createClient(
-        process.env.SUPABASE_URL,
-        process.env.SUPABASE_SERVICE_ROLE_KEY
-      );
-
-      const { data, error } = await supabase
-        .from("restyle_bookings")
-        .update({ 
-          appointment_status: "cancelled",
-          status: "cancelled",
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", bookingId)
-        .select();
-
-      if (error) {
-        throw new Error(`Supabase update error: ${error.message} (Code: ${error.code})`);
-      }
-
-      supabaseUpdateResult = data;
-      console.log("✅ Successfully updated booking status in Supabase (not deleted):", data);
-    } catch (dbErr) {
-      console.error("❌ Supabase update error:", dbErr.message);
-      supabaseUpdateResult = { error: dbErr.message };
-    }
-
     return {
       statusCode: 200,
       headers: {
@@ -145,7 +115,6 @@ exports.handler = async function (event) {
         success: true,
         message: "Booking cancelled successfully",
         apiCancelResult,
-        supabaseUpdateResult,
       }),
     };
   } catch (err) {
@@ -156,9 +125,9 @@ exports.handler = async function (event) {
         "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ 
-        error: "Unexpected server error", 
-        details: err.message 
+      body: JSON.stringify({
+        error: "Unexpected server error",
+        details: err.message,
       }),
     };
   }
