@@ -336,11 +336,11 @@
     const minutes = Math.floor((ms % 36e5) / 6e4);
     if (hours > 24) {
       const days = Math.floor(hours / 24);
-      return `${days}d ${hours % 24}h remaining`;
+      return `In${days}d ${hours % 24}h`;
     } else if (hours > 0) {
-      return `${hours}h ${minutes}m remaining`;
+      return `In ${hours}h ${minutes}m`;
     } else {
-      return `${minutes}m remaining`;
+      return `In ${minutes}m`;
     }
   }
 
