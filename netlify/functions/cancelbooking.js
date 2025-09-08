@@ -2,7 +2,7 @@ const axios = require("axios");
 const { getValidAccessToken } = require("../../supbase");
 const { cancelBookingInDB } = require("../../cancelsupabase");
 
-console.log("✂️ cancelBooking function - created 2025-09-08");
+console.log("✂️ cancelBooking function - updated for frontend integration");
 
 // Common headers for CORS
 const corsHeaders = {
@@ -13,7 +13,7 @@ const corsHeaders = {
 };
 
 exports.handler = async function (event) {
-  // Handle preflight OPTIONS request
+  // Handle preflight OPTIONS
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
@@ -24,7 +24,6 @@ exports.handler = async function (event) {
 
   try {
     const accessToken = await getValidAccessToken();
-
     if (!accessToken) {
       return {
         statusCode: 401,
@@ -33,23 +32,28 @@ exports.handler = async function (event) {
       };
     }
 
-    const params = event.queryStringParameters || {};
-    const { appointmentId } = params;
+    // Support both GET (query) and POST (JSON body)
+    let appointmentId = null;
+    if (event.httpMethod === "POST") {
+      const body = JSON.parse(event.body || "{}");
+      appointmentId = body.bookingId || body.appointmentId || null;
+    } else {
+      const params = event.queryStringParameters || {};
+      appointmentId = params.bookingId || params.appointmentId || null;
+    }
 
     if (!appointmentId) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: "Missing required parameter: appointmentId" }),
+        body: JSON.stringify({ error: "Missing required parameter: bookingId" }),
       };
     }
 
     // 📝 Payload for cancel
-    const payload = {
-      appointmentStatus: "cancelled",
-    };
+    const payload = { appointmentStatus: "cancelled" };
 
-    // ✂️ Cancel appointment via API
+    // Cancel appointment via API
     const response = await axios.put(
       `https://services.leadconnectorhq.com/calendars/events/appointments/${appointmentId}`,
       payload,
@@ -66,7 +70,7 @@ exports.handler = async function (event) {
     const cancelledBooking = response.data || null;
     console.log("✂️ Cancelled booking:", cancelledBooking);
 
-    // 💾 Update booking in Supabase
+    // Update booking in Supabase
     let dbUpdate = null;
     try {
       if (!cancelledBooking || !cancelledBooking.id) {
@@ -75,7 +79,6 @@ exports.handler = async function (event) {
       dbUpdate = await cancelBookingInDB(cancelledBooking);
     } catch (dbError) {
       console.error("❌ DB update failed:", dbError.message);
-      console.error("❌ Booking data that failed:", JSON.stringify(cancelledBooking, null, 2));
       dbUpdate = { error: dbError.message };
     }
 
