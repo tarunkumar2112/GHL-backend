@@ -3,12 +3,11 @@ const { getValidAccessToken } = require("../../supbase");
 const glide = require("@glideapps/tables");
 
 // 🔹 Glide table config
-const dataTradingHours1Table = glide.table({
-  token: "aa5c5a76-fb8a-440a-853a-77da3c9200a6",
-  app: "s3S0ts3gGHAWo9BXfcJY",
-  table: "native-table-hsus2D3G9gILrXrqlA5P",
+const tradingTable = glide.table({
+  token: process.env.GLIDE_API_KEY, // 🔑 move token into Netlify env
+  app: process.env.GLIDE_APP_ID,
+  table: process.env.GLIDE_TABLE_ID,
   columns: {
-    jsonSummary: { type: "string", name: "fiEyB" },
     dayName: { type: "string", name: "Xpoal" },
     dayStart: { type: "number", name: "wcwmd" },
     dayEnd: { type: "number", name: "22Jaw" },
@@ -29,11 +28,9 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// 🔹 Parse "HH:MM" -> number like 930, 1530 etc.
+// 🔹 Convert JS Date → HHMM number
 function timeToNumber(date) {
-  const hours = date.getHours();
-  const mins = date.getMinutes();
-  return hours * 100 + mins;
+  return date.getHours() * 100 + date.getMinutes();
 }
 
 exports.handler = async function (event) {
@@ -66,11 +63,11 @@ exports.handler = async function (event) {
       };
     }
 
-    // ✅ Get trading hours from Glide
-    const tradingRows = await dataTradingHours1Table.get();
+    // ✅ Load trading hours from Glide
+    const tradingRows = await tradingTable.get();
     const tradingHours = {};
     tradingRows.forEach((row) => {
-      tradingHours[row.dayName.toLowerCase()] = {
+      tradingHours[row.dayName] = {
         start: row.dayStart,
         end: row.dayEnd,
       };
@@ -88,21 +85,18 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    // 🔹 Format + filter by trading hours
-    const formatAndFilterSlots = (slotsData) => {
-      const formatted = {};
+    // 🔹 Format + filter slots by trading rules
+    const filterSlots = (slotsData) => {
+      const filtered = {};
       Object.entries(slotsData).forEach(([dateStr, value]) => {
-        if (dateStr === "traceId") return;
-        if (!value.slots?.length) return;
+        if (dateStr === "traceId" || !value.slots?.length) return;
 
         const d = new Date(dateStr);
-        const dayName = d
-          .toLocaleDateString("en-US", { weekday: "long" })
-          .toLowerCase();
+        const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
         const rule = tradingHours[dayName];
         if (!rule) return;
 
-        const filteredSlots = value.slots
+        const validSlots = value.slots
           .map((slot) => new Date(slot))
           .filter((dt) => {
             const num = timeToNumber(dt);
@@ -117,13 +111,14 @@ exports.handler = async function (event) {
             })
           );
 
-        if (filteredSlots.length > 0) {
-          formatted[dateStr] = filteredSlots;
+        if (validSlots.length > 0) {
+          filtered[dateStr] = validSlots;
         }
       });
-      return formatted;
+      return filtered;
     };
 
+    // 🔹 Day range helper
     const getDayRange = (day) => ({
       start: new Date(
         day.getFullYear(),
@@ -145,18 +140,16 @@ exports.handler = async function (event) {
       ).getTime(),
     });
 
+    // ✅ Start date = ?date or today
     let startDate = new Date();
     if (date) {
       const parts = date.split("-");
       if (parts.length === 3) {
-        startDate = new Date(
-          Number(parts[0]),
-          Number(parts[1]) - 1,
-          Number(parts[2])
-        );
+        startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
       }
     }
 
+    // ✅ Build 30-day window
     const totalDays = 30;
     const daysToCheck = [];
     for (let i = 0; i < totalDays; i++) {
@@ -169,15 +162,7 @@ exports.handler = async function (event) {
     const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
     const slotsData = await fetchSlots(startOfRange, endOfRange);
-    const allFiltered = formatAndFilterSlots(slotsData);
-
-    const filtered = {};
-    daysToCheck.forEach((d) => {
-      const key = d.toISOString().split("T")[0];
-      if (allFiltered[key]) {
-        filtered[key] = allFiltered[key];
-      }
-    });
+    const filtered = filterSlots(slotsData);
 
     const responseData = {
       calendarId,
@@ -192,10 +177,7 @@ exports.handler = async function (event) {
       body: JSON.stringify(responseData),
     };
   } catch (err) {
-    console.error(
-      "❌ Error in FilteredTradingSlots:",
-      err.response?.data || err.message
-    );
+    console.error("❌ Error in FilteredTradingSlots:", err.response?.data || err.message);
     return {
       statusCode: err.response?.status || 500,
       headers: corsHeaders,
