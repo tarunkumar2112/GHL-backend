@@ -36,6 +36,28 @@ function timeToNumberInTZ(date, tz = "America/Denver") {
   return hour * 100 + minute;
 }
 
+// ✅ Format a Date to YYYY-MM-DD in a specific timezone
+function formatDateInTZ(date, tz = "America/Denver") {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+  // en-CA gives YYYY-MM-DD
+  return parts;
+}
+
+// ✅ Parse time strings like 08:30:53+05:30 or 08:30 to HHMM number
+function parseDbTimeToNumber(dbTime) {
+  if (!dbTime) return null;
+  const match = String(dbTime).match(/^(\d{2}):(\d{2})/);
+  if (!match) return null;
+  const hh = match[1];
+  const mm = match[2];
+  return Number(`${hh}${mm}`);
+}
+
 // ✅ Load business hours from Supabase/Airtable sync
 async function getBusinessHours() {
   const { data, error } = await supabase.from("business_hours").select("*");
@@ -77,14 +99,14 @@ async function getStaffLeaves(ghlId) {
     throw error;
   }
 
-  // Map date → { leave_type, start_time, end_time }
+  // Map YYYY-MM-DD → { leave_type, start_time, end_time }
   const leaves = {};
   data.forEach((row) => {
-    const dateStr = row.unavailable_date;
+    const dateStr = row.unavailable_date; // already YYYY-MM-DD in DB
     leaves[dateStr] = {
       leave_type: row.leave_type,
-      start_time: row.start_time ? Number(row.start_time.replace(":", "").slice(0, 4)) : null,
-      end_time: row.end_time ? Number(row.end_time.replace(":", "").slice(0, 4)) : null,
+      start_time: parseDbTimeToNumber(row.start_time),
+      end_time: parseDbTimeToNumber(row.end_time),
     };
   });
 
@@ -140,10 +162,8 @@ exports.handler = async function (event) {
     }
 
     // Load business hours and staff leaves from Supabase
-    const [businessHours, staffLeaves] = await Promise.all([
-      getBusinessHours(),
-      getStaffLeaves(ghlId)
-    ]);
+    const businessHours = await getBusinessHours();
+    const staffLeaves = userId && ghlId ? await getStaffLeaves(ghlId) : {};
 
     // Fetch slots from GHL
     const fetchSlots = async (start, end) => {
@@ -170,8 +190,11 @@ exports.handler = async function (event) {
         // Check business hours first
         if (!businessRule || !businessRule.is_open) return;
 
+        // Normalize date key to YYYY-MM-DD in Denver for comparing with DB
+        const dateKey = formatDateInTZ(d, "America/Denver");
+        
         // Check staff leave for this date
-        const leaveInfo = staffLeaves[dateStr];
+        const leaveInfo = staffLeaves[dateKey];
         
         // If full day leave, skip this entire date
         if (leaveInfo && leaveInfo.leave_type === "Full Day") {
@@ -205,7 +228,7 @@ exports.handler = async function (event) {
           );
 
         if (validSlots.length > 0) {
-          filtered[dateStr] = validSlots;
+          filtered[dateKey] = validSlots;
         }
       });
       return filtered;
@@ -264,7 +287,7 @@ exports.handler = async function (event) {
       userId,
       ghlId,
       activeDay: "allDays",
-      startDate: startDate.toISOString().split("T")[0],
+      startDate: formatDateInTZ(startDate, "America/Denver"),
       slots: filtered,
       filters: {
         businessHours: Object.keys(businessHours).length > 0,
