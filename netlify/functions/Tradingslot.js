@@ -29,7 +29,7 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// 🔹 Convert Date → HHMM number (e.g. 6:30 → 630)
+// 🔹 Parse "HH:MM" -> number like 930, 1530 etc.
 function timeToNumber(date) {
   const hours = date.getHours();
   const mins = date.getMinutes();
@@ -66,11 +66,11 @@ exports.handler = async function (event) {
       };
     }
 
-    // ✅ Pull trading hours from Glide
+    // ✅ Get trading hours from Glide
     const tradingRows = await dataTradingHours1Table.get();
     const tradingHours = {};
     tradingRows.forEach((row) => {
-      tradingHours[row.dayName] = {
+      tradingHours[row.dayName.toLowerCase()] = {
         start: row.dayStart,
         end: row.dayEnd,
       };
@@ -88,7 +88,7 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    // 🔹 Format + filter with trading hours
+    // 🔹 Format + filter by trading hours
     const formatAndFilterSlots = (slotsData) => {
       const formatted = {};
       Object.entries(slotsData).forEach(([dateStr, value]) => {
@@ -96,7 +96,9 @@ exports.handler = async function (event) {
         if (!value.slots?.length) return;
 
         const d = new Date(dateStr);
-        const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
+        const dayName = d
+          .toLocaleDateString("en-US", { weekday: "long" })
+          .toLowerCase();
         const rule = tradingHours[dayName];
         if (!rule) return;
 
@@ -122,22 +124,39 @@ exports.handler = async function (event) {
       return formatted;
     };
 
-    // 🔹 Day range helper
     const getDayRange = (day) => ({
-      start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0).getTime(),
-      end: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999).getTime(),
+      start: new Date(
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate(),
+        0,
+        0,
+        0,
+        0
+      ).getTime(),
+      end: new Date(
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate(),
+        23,
+        59,
+        59,
+        999
+      ).getTime(),
     });
 
-    // ✅ Start date (query param or today)
     let startDate = new Date();
     if (date) {
       const parts = date.split("-");
       if (parts.length === 3) {
-        startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        startDate = new Date(
+          Number(parts[0]),
+          Number(parts[1]) - 1,
+          Number(parts[2])
+        );
       }
     }
 
-    // ✅ Build next 30 days
     const totalDays = 30;
     const daysToCheck = [];
     for (let i = 0; i < totalDays; i++) {
@@ -149,11 +168,9 @@ exports.handler = async function (event) {
     const { start: startOfRange } = getDayRange(daysToCheck[0]);
     const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
-    // 🔹 Fetch + filter
     const slotsData = await fetchSlots(startOfRange, endOfRange);
     const allFiltered = formatAndFilterSlots(slotsData);
 
-    // 🔹 Only keep requested days
     const filtered = {};
     daysToCheck.forEach((d) => {
       const key = d.toISOString().split("T")[0];
@@ -175,7 +192,10 @@ exports.handler = async function (event) {
       body: JSON.stringify(responseData),
     };
   } catch (err) {
-    console.error("❌ Error in FilteredTradingSlots:", err.response?.data || err.message);
+    console.error(
+      "❌ Error in FilteredTradingSlots:",
+      err.response?.data || err.message
+    );
     return {
       statusCode: err.response?.status || 500,
       headers: corsHeaders,
