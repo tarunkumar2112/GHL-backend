@@ -36,29 +36,7 @@ function timeToNumberInTZ(date, tz = "America/Denver") {
   return hour * 100 + minute;
 }
 
-// ✅ Format a Date to YYYY-MM-DD in a specific timezone
-function formatDateInTZ(date, tz = "America/Denver") {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-  // en-CA gives YYYY-MM-DD
-  return parts;
-}
-
-// ✅ Parse time strings like 08:30:53+05:30 or 08:30 to HHMM number
-function parseDbTimeToNumber(dbTime) {
-  if (!dbTime) return null;
-  const match = String(dbTime).match(/^(\d{2}):(\d{2})/);
-  if (!match) return null;
-  const hh = match[1];
-  const mm = match[2];
-  return Number(`${hh}${mm}`);
-}
-
-// ✅ Load business hours from Supabase/Airtable sync
+// ✅ Load business hours from Supabase
 async function getBusinessHours() {
   const { data, error } = await supabase.from("business_hours").select("*");
 
@@ -67,7 +45,6 @@ async function getBusinessHours() {
     throw error;
   }
 
-  // Map day_of_week → { is_open, start, end }
   const hours = {};
   data.forEach((row) => {
     hours[row.day_of_week] = {
@@ -99,14 +76,17 @@ async function getStaffLeaves(ghlId) {
     throw error;
   }
 
-  // Map YYYY-MM-DD → { leave_type, start_time, end_time }
   const leaves = {};
   data.forEach((row) => {
-    const dateStr = row.unavailable_date; // already YYYY-MM-DD in DB
+    const dateStr = row.unavailable_date;
     leaves[dateStr] = {
       leave_type: row.leave_type,
-      start_time: parseDbTimeToNumber(row.start_time),
-      end_time: parseDbTimeToNumber(row.end_time),
+      start_time: row.start_time
+        ? Number(row.start_time.replace(":", "").slice(0, 4))
+        : null,
+      end_time: row.end_time
+        ? Number(row.end_time.replace(":", "").slice(0, 4))
+        : null,
     };
   });
 
@@ -117,12 +97,10 @@ async function getStaffLeaves(ghlId) {
 function isSlotBlockedByLeave(slotTime, leaveInfo) {
   if (!leaveInfo) return false;
 
-  // Full day leave - block all slots
   if (leaveInfo.leave_type === "Full Day") {
     return true;
   }
 
-  // Half day leave - check time range
   if (leaveInfo.leave_type === "Half Day") {
     const slotTimeNum = timeToNumberInTZ(slotTime, "America/Denver");
     return slotTimeNum >= leaveInfo.start_time && slotTimeNum <= leaveInfo.end_time;
@@ -161,11 +139,11 @@ exports.handler = async function (event) {
       };
     }
 
-    // Load business hours and staff leaves from Supabase
-    const businessHours = await getBusinessHours();
-    const staffLeaves = userId && ghlId ? await getStaffLeaves(ghlId) : {};
+    const [businessHours, staffLeaves] = await Promise.all([
+      getBusinessHours(),
+      getStaffLeaves(ghlId),
+    ]);
 
-    // Fetch slots from GHL
     const fetchSlots = async (start, end) => {
       let url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${end}`;
       if (userId) url += `&userId=${userId}`;
@@ -177,26 +155,19 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    // ✅ Filter slots against business hours AND staff leaves
     const filterSlots = (slotsData) => {
       const filtered = {};
       Object.entries(slotsData).forEach(([dateStr, value]) => {
         if (dateStr === "traceId" || !value.slots?.length) return;
 
         const d = new Date(dateStr);
-        const dayOfWeek = d.getDay(); // 0=Sun, 6=Sat
+        const dayOfWeek = d.getDay();
         const businessRule = businessHours[dayOfWeek];
 
-        // Check business hours first
         if (!businessRule || !businessRule.is_open) return;
 
-        // Normalize date key to YYYY-MM-DD in Denver for comparing with DB
-        const dateKey = formatDateInTZ(d, "America/Denver");
-        
-        // Check staff leave for this date
-        const leaveInfo = staffLeaves[dateKey];
-        
-        // If full day leave, skip this entire date
+        const leaveInfo = staffLeaves[dateStr];
+
         if (leaveInfo && leaveInfo.leave_type === "Full Day") {
           return;
         }
@@ -205,15 +176,15 @@ exports.handler = async function (event) {
           .map((slot) => new Date(slot))
           .filter((dt) => {
             const num = timeToNumberInTZ(dt, "America/Denver");
-            
-            // Check business hours
+
             if (num < businessRule.start || num > businessRule.end) {
               return false;
             }
 
-            // Check staff leave (half day)
-            if (isSlotBlockedByLeave(dt, leaveInfo)) {
-              return false;
+            if (leaveInfo && leaveInfo.leave_type === "Half Day") {
+              if (num >= leaveInfo.start_time && num <= leaveInfo.end_time) {
+                return false;
+              }
             }
 
             return true;
@@ -228,13 +199,12 @@ exports.handler = async function (event) {
           );
 
         if (validSlots.length > 0) {
-          filtered[dateKey] = validSlots;
+          filtered[dateStr] = validSlots;
         }
       });
       return filtered;
     };
 
-    // Build date range
     const getDayRange = (day) => ({
       start: new Date(
         day.getFullYear(),
@@ -287,12 +257,12 @@ exports.handler = async function (event) {
       userId,
       ghlId,
       activeDay: "allDays",
-      startDate: formatDateInTZ(startDate, "America/Denver"),
+      startDate: startDate.toISOString().split("T")[0],
       slots: filtered,
       filters: {
         businessHours: Object.keys(businessHours).length > 0,
-        staffLeaves: Object.keys(staffLeaves).length > 0
-      }
+        staffLeaves: Object.keys(staffLeaves).length > 0,
+      },
     };
 
     return {
