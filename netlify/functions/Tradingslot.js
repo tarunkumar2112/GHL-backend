@@ -1,20 +1,14 @@
 const axios = require("axios");
 const { getValidAccessToken } = require("../../supbase");
-const glide = require("@glideapps/tables");
+const { createClient } = require("@supabase/supabase-js");
 
-// 🔹 Glide table config
-const tradingTable = glide.table({
-  token: process.env.GLIDE_API_KEY,
-  app: process.env.GLIDE_APP_ID,
-  table: process.env.GLIDE_TABLE_ID,
-  columns: {
-    dayName: { type: "string", name: "Xpoal" }, // Weekday name
-    dayStart: { type: "number", name: "wcwmd" }, // HHMM start
-    dayEnd: { type: "number", name: "22Jaw" },   // HHMM end
-  },
-});
+// Supabase client (anon key is fine for read-only, use env vars)
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-// 🔄 Retry helper for GHL requests
+// 🔄 Retry helper for 429
 async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   try {
     return await axios.get(url, { headers });
@@ -28,9 +22,33 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// 🔹 Convert JS Date → HHMM number (e.g., 9:30 → 930)
+// Convert date → number (HHMM)
 function timeToNumber(date) {
   return date.getHours() * 100 + date.getMinutes();
+}
+
+// Load business hours from Supabase
+async function getBusinessHours() {
+  const { data, error } = await supabase
+    .from("business_hours")
+    .select("*");
+
+  if (error) {
+    console.error("❌ Error loading business_hours:", error.message);
+    throw error;
+  }
+
+  // Map day_of_week → { is_open, start, end }
+  const hours = {};
+  data.forEach((row) => {
+    hours[row.day_of_week] = {
+      is_open: row.is_open,
+      start: row.open_time ? Number(row.open_time.replace(":", "").slice(0, 4)) : null,
+      end: row.close_time ? Number(row.close_time.replace(":", "").slice(0, 4)) : null,
+    };
+  });
+
+  return hours;
 }
 
 exports.handler = async function (event) {
@@ -63,17 +81,10 @@ exports.handler = async function (event) {
       };
     }
 
-    // ✅ Load trading hours from Glide
-    const tradingRows = await tradingTable.get();
-    const tradingHours = {};
-    tradingRows.forEach((row) => {
-      tradingHours[row.dayName] = {
-        start: row.dayStart,
-        end: row.dayEnd,
-      };
-    });
+    // Load business hours from Supabase
+    const businessHours = await getBusinessHours();
 
-    // 🔹 Fetch slots from GHL
+    // Fetch slots from GHL
     const fetchSlots = async (start, end) => {
       let url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${end}`;
       if (userId) url += `&userId=${userId}`;
@@ -85,16 +96,17 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    // 🔹 Format + filter slots by business hours
+    // Format & filter slots using business hours
     const filterSlots = (slotsData) => {
       const filtered = {};
       Object.entries(slotsData).forEach(([dateStr, value]) => {
         if (dateStr === "traceId" || !value.slots?.length) return;
 
         const d = new Date(dateStr);
-        const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
-        const rule = tradingHours[dayName];
-        if (!rule) return; // closed that day
+        const dayOfWeek = d.getDay(); // 0=Sun, 6=Sat
+        const rule = businessHours[dayOfWeek];
+
+        if (!rule || !rule.is_open) return;
 
         const validSlots = value.slots
           .map((slot) => new Date(slot))
@@ -104,7 +116,7 @@ exports.handler = async function (event) {
           })
           .map((dt) =>
             dt.toLocaleString("en-US", {
-              timeZone: "America/Denver", // adjust timezone
+              timeZone: "America/Denver",
               hour: "2-digit",
               minute: "2-digit",
               hour12: true,
@@ -118,23 +130,12 @@ exports.handler = async function (event) {
       return filtered;
     };
 
-    // 🔹 Day range helper
+    // Build date range
     const getDayRange = (day) => ({
-      start: new Date(
-        day.getFullYear(),
-        day.getMonth(),
-        day.getDate(),
-        0, 0, 0, 0
-      ).getTime(),
-      end: new Date(
-        day.getFullYear(),
-        day.getMonth(),
-        day.getDate(),
-        23, 59, 59, 999
-      ).getTime(),
+      start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0).getTime(),
+      end: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999).getTime(),
     });
 
-    // ✅ Start date = ?date or today
     let startDate = new Date();
     if (date) {
       const parts = date.split("-");
@@ -143,7 +144,6 @@ exports.handler = async function (event) {
       }
     }
 
-    // ✅ Build 30-day window
     const totalDays = 30;
     const daysToCheck = [];
     for (let i = 0; i < totalDays; i++) {
@@ -155,7 +155,6 @@ exports.handler = async function (event) {
     const { start: startOfRange } = getDayRange(daysToCheck[0]);
     const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
-    // 🔹 Get GHL slots + filter using Glide
     const slotsData = await fetchSlots(startOfRange, endOfRange);
     const filtered = filterSlots(slotsData);
 
@@ -166,18 +165,14 @@ exports.handler = async function (event) {
       slots: filtered,
     };
 
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify(responseData),
-    };
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(responseData) };
   } catch (err) {
-    console.error("❌ Error in FilteredTradingSlots:", err.response?.data || err.message);
+    console.error("❌ Error in BusinessSlots:", err.response?.data || err.message);
     return {
       statusCode: err.response?.status || 500,
       headers: corsHeaders,
       body: JSON.stringify({
-        error: "Failed to fetch trading slots",
+        error: "Failed to fetch business slots",
         details: err.response?.data || err.message,
       }),
     };
