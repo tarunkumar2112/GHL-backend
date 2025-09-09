@@ -36,10 +36,10 @@ function timeToNumberInTZ(date, tz = "America/Denver") {
   return hour * 100 + minute;
 }
 
-// ✅ Format date string to 'YYYY-MM-DD'
+// ✅ Format date string to 'YYYY-MM-DD' in Denver timezone
 function formatDate(dateStr) {
   const d = new Date(dateStr);
-  return d.toISOString().split("T")[0];
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Denver" });
 }
 
 // ✅ Load business hours from Supabase
@@ -67,14 +67,14 @@ async function getBusinessHours() {
   return hours;
 }
 
-// ✅ Load staff leaves from Supabase with proper time zone handling and normalized dates
+// ✅ Load staff leaves from Supabase with timezone handling
 async function getStaffLeaves(ghlId) {
   if (!ghlId) return {};
 
   const { data, error } = await supabase
     .from("staff_leaves")
     .select("*")
-    .eq("ghl_id", ghlId); // No event_status filter
+    .eq("ghl_id", ghlId);
 
   if (error) {
     console.error("❌ Error loading staff_leaves:", error.message);
@@ -88,12 +88,12 @@ async function getStaffLeaves(ghlId) {
     let startTimeNum = null;
     let endTimeNum = null;
 
-    if (row.start_time) {
+    if (row.start_time && row.leave_type === "Half Day") {
       const startDate = new Date(row.start_time);
       startTimeNum = timeToNumberInTZ(startDate, "America/Denver");
     }
 
-    if (row.end_time) {
+    if (row.end_time && row.leave_type === "Half Day") {
       const endDate = new Date(row.end_time);
       endTimeNum = timeToNumberInTZ(endDate, "America/Denver");
     }
@@ -105,25 +105,84 @@ async function getStaffLeaves(ghlId) {
     };
   });
 
+  console.log("Staff Leaves Loaded:", leaves);
   return leaves;
 }
 
-// ✅ Check if a time slot conflicts with staff leave
-function isSlotBlockedByLeave(slotTime, leaveInfo) {
-  if (!leaveInfo) return false;
+// ✅ Filter slots considering business hours and staff leaves
+function filterSlots(slotsData, businessHours, staffLeaves) {
+  const filtered = {};
 
-  if (leaveInfo.leave_type === "Full Day") {
-    return true;
-  }
+  Object.entries(slotsData).forEach(([dateStr, value]) => {
+    if (dateStr === "traceId" || !value.slots?.length) return;
 
-  if (leaveInfo.leave_type === "Half Day") {
-    const slotTimeNum = timeToNumberInTZ(slotTime, "America/Denver");
-    return slotTimeNum >= leaveInfo.start_time && slotTimeNum <= leaveInfo.end_time;
-  }
+    const d = new Date(dateStr);
+    const dayOfWeek = d.getDay();
+    const businessRule = businessHours[dayOfWeek];
 
-  return false;
+    if (!businessRule || !businessRule.is_open) return;
+
+    const formattedDate = formatDate(dateStr);
+    const leaveInfo = staffLeaves[formattedDate];
+
+    // Skip full-day leave
+    if (leaveInfo && leaveInfo.leave_type === "Full Day") return;
+
+    const validSlots = value.slots
+      .map((slot) => new Date(slot))
+      .filter((dt) => {
+        const num = timeToNumberInTZ(dt, "America/Denver");
+
+        // Outside business hours
+        if (num < businessRule.start || num > businessRule.end) return false;
+
+        // Half-day leave filtering
+        if (leaveInfo && leaveInfo.leave_type === "Half Day") {
+          if (num >= leaveInfo.start_time && num <= leaveInfo.end_time) return false;
+        }
+
+        return true;
+      })
+      .map((dt) =>
+        dt.toLocaleString("en-US", {
+          timeZone: "America/Denver",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        })
+      );
+
+    if (validSlots.length > 0) {
+      filtered[dateStr] = validSlots;
+    }
+  });
+
+  return filtered;
 }
 
+// ✅ Get day range (start & end timestamps)
+const getDayRange = (day) => ({
+  start: new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    0,
+    0,
+    0,
+    0
+  ).getTime(),
+  end: new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    23,
+    59,
+    59,
+    999
+  ).getTime(),
+});
+
+// 🚀 Handler
 exports.handler = async function (event) {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -170,87 +229,11 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    const filterSlots = (slotsData) => {
-      const filtered = {};
-      Object.entries(slotsData).forEach(([dateStr, value]) => {
-        if (dateStr === "traceId" || !value.slots?.length) return;
-
-        const d = new Date(dateStr);
-        const dayOfWeek = d.getDay();
-        const businessRule = businessHours[dayOfWeek];
-
-        if (!businessRule || !businessRule.is_open) return;
-
-        const formattedDate = formatDate(dateStr);
-        const leaveInfo = staffLeaves[formattedDate];
-
-        if (leaveInfo && leaveInfo.leave_type === "Full Day") {
-          return; // skip entire day
-        }
-
-        const validSlots = value.slots
-          .map((slot) => new Date(slot))
-          .filter((dt) => {
-            const num = timeToNumberInTZ(dt, "America/Denver");
-
-            if (num < businessRule.start || num > businessRule.end) {
-              return false;
-            }
-
-            if (leaveInfo && leaveInfo.leave_type === "Half Day") {
-              if (num >= leaveInfo.start_time && num <= leaveInfo.end_time) {
-                return false;
-              }
-            }
-
-            return true;
-          })
-          .map((dt) =>
-            dt.toLocaleString("en-US", {
-              timeZone: "America/Denver",
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: true,
-            })
-          );
-
-        if (validSlots.length > 0) {
-          filtered[dateStr] = validSlots;
-        }
-      });
-      return filtered;
-    };
-
-    const getDayRange = (day) => ({
-      start: new Date(
-        day.getFullYear(),
-        day.getMonth(),
-        day.getDate(),
-        0,
-        0,
-        0,
-        0
-      ).getTime(),
-      end: new Date(
-        day.getFullYear(),
-        day.getMonth(),
-        day.getDate(),
-        23,
-        59,
-        59,
-        999
-      ).getTime(),
-    });
-
     let startDate = new Date();
     if (date) {
       const parts = date.split("-");
       if (parts.length === 3) {
-        startDate = new Date(
-          Number(parts[0]),
-          Number(parts[1]) - 1,
-          Number(parts[2])
-        );
+        startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
       }
     }
 
@@ -266,7 +249,7 @@ exports.handler = async function (event) {
     const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
     const slotsData = await fetchSlots(startOfRange, endOfRange);
-    const filtered = filterSlots(slotsData);
+    const filtered = filterSlots(slotsData, businessHours, staffLeaves);
 
     const responseData = {
       calendarId,
