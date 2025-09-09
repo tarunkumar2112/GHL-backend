@@ -61,14 +61,14 @@ async function getBusinessHours() {
   return hours;
 }
 
-// ✅ Load staff leaves from Supabase (without filtering by event_status)
+// ✅ Load staff leaves from Supabase with proper time zone handling
 async function getStaffLeaves(ghlId) {
   if (!ghlId) return {};
 
   const { data, error } = await supabase
     .from("staff_leaves")
     .select("*")
-    .eq("ghl_id", ghlId); // Removed event_status filter
+    .eq("ghl_id", ghlId); // No event_status filter
 
   if (error) {
     console.error("❌ Error loading staff_leaves:", error.message);
@@ -78,14 +78,23 @@ async function getStaffLeaves(ghlId) {
   const leaves = {};
   data.forEach((row) => {
     const dateStr = row.unavailable_date;
+    let startTimeNum = null;
+    let endTimeNum = null;
+
+    if (row.start_time) {
+      const startDate = new Date(row.start_time);
+      startTimeNum = timeToNumberInTZ(startDate, "America/Denver");
+    }
+
+    if (row.end_time) {
+      const endDate = new Date(row.end_time);
+      endTimeNum = timeToNumberInTZ(endDate, "America/Denver");
+    }
+
     leaves[dateStr] = {
       leave_type: row.leave_type,
-      start_time: row.start_time
-        ? Number(row.start_time.replace(":", "").slice(0, 4))
-        : null,
-      end_time: row.end_time
-        ? Number(row.end_time.replace(":", "").slice(0, 4))
-        : null,
+      start_time: startTimeNum,
+      end_time: endTimeNum,
     };
   });
 
