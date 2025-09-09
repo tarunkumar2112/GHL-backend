@@ -148,9 +148,9 @@ function filterSlots(slotsData, businessHours, staffLeaves) {
         // Outside business hours
         if (num < businessRule.start || num > businessRule.end) return false;
 
-        // Half-day leave filtering
+        // Half-day leave filtering (exclusive end)
         if (leaveInfo && leaveInfo.leave_type === "Half Day") {
-          if (num >= leaveInfo.start_time && num <= leaveInfo.end_time) return false;
+          if (num >= leaveInfo.start_time && num < leaveInfo.end_time) return false;
         }
 
         return true;
@@ -171,6 +171,7 @@ function filterSlots(slotsData, businessHours, staffLeaves) {
 
   return filtered;
 }
+
 
 // ✅ Get day range (start & end timestamps)
 const getDayRange = (day) => ({
