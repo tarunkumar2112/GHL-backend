@@ -2,7 +2,7 @@ const axios = require("axios");
 const { getValidAccessToken } = require("../../supbase");
 const { createClient } = require("@supabase/supabase-js");
 
-// Supabase client (anon key is fine for read-only, use env vars)
+// Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -22,16 +22,23 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// Convert date → number (HHMM)
-function timeToNumber(date) {
-  return date.getHours() * 100 + date.getMinutes();
+// ✅ Convert a Date → HHMM in specific timezone (America/Denver)
+function timeToNumberInTZ(date, tz = "America/Denver") {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const hour = Number(parts.find((p) => p.type === "hour").value);
+  const minute = Number(parts.find((p) => p.type === "minute").value);
+  return hour * 100 + minute;
 }
 
-// Load business hours from Supabase
+// ✅ Load business hours from Supabase/Airtable sync
 async function getBusinessHours() {
-  const { data, error } = await supabase
-    .from("business_hours")
-    .select("*");
+  const { data, error } = await supabase.from("business_hours").select("*");
 
   if (error) {
     console.error("❌ Error loading business_hours:", error.message);
@@ -43,8 +50,12 @@ async function getBusinessHours() {
   data.forEach((row) => {
     hours[row.day_of_week] = {
       is_open: row.is_open,
-      start: row.open_time ? Number(row.open_time.replace(":", "").slice(0, 4)) : null,
-      end: row.close_time ? Number(row.close_time.replace(":", "").slice(0, 4)) : null,
+      start: row.open_time
+        ? Number(row.open_time.replace(":", "").slice(0, 4))
+        : null,
+      end: row.close_time
+        ? Number(row.close_time.replace(":", "").slice(0, 4))
+        : null,
     };
   });
 
@@ -96,7 +107,7 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    // Format & filter slots using business hours
+    // ✅ Filter slots against business hours
     const filterSlots = (slotsData) => {
       const filtered = {};
       Object.entries(slotsData).forEach(([dateStr, value]) => {
@@ -111,7 +122,7 @@ exports.handler = async function (event) {
         const validSlots = value.slots
           .map((slot) => new Date(slot))
           .filter((dt) => {
-            const num = timeToNumber(dt);
+            const num = timeToNumberInTZ(dt, "America/Denver");
             return num >= rule.start && num <= rule.end;
           })
           .map((dt) =>
@@ -132,15 +143,35 @@ exports.handler = async function (event) {
 
     // Build date range
     const getDayRange = (day) => ({
-      start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0).getTime(),
-      end: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999).getTime(),
+      start: new Date(
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate(),
+        0,
+        0,
+        0,
+        0
+      ).getTime(),
+      end: new Date(
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate(),
+        23,
+        59,
+        59,
+        999
+      ).getTime(),
     });
 
     let startDate = new Date();
     if (date) {
       const parts = date.split("-");
       if (parts.length === 3) {
-        startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        startDate = new Date(
+          Number(parts[0]),
+          Number(parts[1]) - 1,
+          Number(parts[2])
+        );
       }
     }
 
@@ -165,7 +196,11 @@ exports.handler = async function (event) {
       slots: filtered,
     };
 
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(responseData) };
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify(responseData),
+    };
   } catch (err) {
     console.error("❌ Error in BusinessSlots:", err.response?.data || err.message);
     return {
