@@ -1,6 +1,6 @@
 const axios = require("axios");
 const { getValidAccessToken } = require("../../supbase");
-import * as glide from "@glideapps/tables";
+const glide = require("@glideapps/tables");
 
 // 🔹 Glide table config
 const dataTradingHours1Table = glide.table({
@@ -29,7 +29,7 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// 🔹 Parse "HH:MM AM/PM" -> number like 930, 1530 etc.
+// 🔹 Convert Date → HHMM number (e.g. 6:30 → 630)
 function timeToNumber(date) {
   const hours = date.getHours();
   const mins = date.getMinutes();
@@ -66,7 +66,7 @@ exports.handler = async function (event) {
       };
     }
 
-    // ✅ Get trading hours from Glide
+    // ✅ Pull trading hours from Glide
     const tradingRows = await dataTradingHours1Table.get();
     const tradingHours = {};
     tradingRows.forEach((row) => {
@@ -88,7 +88,7 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    // 🔹 Format + filter by trading hours
+    // 🔹 Format + filter with trading hours
     const formatAndFilterSlots = (slotsData) => {
       const formatted = {};
       Object.entries(slotsData).forEach(([dateStr, value]) => {
@@ -122,11 +122,13 @@ exports.handler = async function (event) {
       return formatted;
     };
 
+    // 🔹 Day range helper
     const getDayRange = (day) => ({
       start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0).getTime(),
       end: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999).getTime(),
     });
 
+    // ✅ Start date (query param or today)
     let startDate = new Date();
     if (date) {
       const parts = date.split("-");
@@ -135,6 +137,7 @@ exports.handler = async function (event) {
       }
     }
 
+    // ✅ Build next 30 days
     const totalDays = 30;
     const daysToCheck = [];
     for (let i = 0; i < totalDays; i++) {
@@ -146,9 +149,11 @@ exports.handler = async function (event) {
     const { start: startOfRange } = getDayRange(daysToCheck[0]);
     const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
+    // 🔹 Fetch + filter
     const slotsData = await fetchSlots(startOfRange, endOfRange);
     const allFiltered = formatAndFilterSlots(slotsData);
 
+    // 🔹 Only keep requested days
     const filtered = {};
     daysToCheck.forEach((d) => {
       const key = d.toISOString().split("T")[0];
