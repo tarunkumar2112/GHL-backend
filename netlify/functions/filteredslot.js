@@ -172,7 +172,6 @@ function filterSlots(slotsData, businessHours, staffLeaves) {
   return filtered;
 }
 
-
 // ✅ Get day range (start & end timestamps)
 const getDayRange = (day) => ({
   start: new Date(
