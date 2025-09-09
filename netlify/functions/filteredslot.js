@@ -129,7 +129,19 @@ function filterSlots(slotsData, businessHours, staffLeaves) {
     if (leaveInfo && leaveInfo.leave_type === "Full Day") return;
 
     const validSlots = value.slots
-      .map((slot) => new Date(slot))
+      .map((slotStr) => {
+        // Convert slot string like "09:00 AM" → Date object in Denver TZ
+        const [time, meridian] = slotStr.split(" ");
+        const [hourStr, minStr] = time.split(":");
+        let hour = Number(hourStr);
+        const minute = Number(minStr);
+        if (meridian === "PM" && hour !== 12) hour += 12;
+        if (meridian === "AM" && hour === 12) hour = 0;
+
+        const slotDate = new Date(dateStr);
+        slotDate.setHours(hour, minute, 0, 0);
+        return slotDate;
+      })
       .filter((dt) => {
         const num = timeToNumberInTZ(dt, "America/Denver");
 
@@ -144,7 +156,7 @@ function filterSlots(slotsData, businessHours, staffLeaves) {
         return true;
       })
       .map((dt) =>
-        dt.toLocaleString("en-US", {
+        dt.toLocaleTimeString("en-US", {
           timeZone: "America/Denver",
           hour: "2-digit",
           minute: "2-digit",
