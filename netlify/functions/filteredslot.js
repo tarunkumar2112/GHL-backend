@@ -61,15 +61,14 @@ async function getBusinessHours() {
   return hours;
 }
 
-// ✅ Load staff leaves from Supabase
+// ✅ Load staff leaves from Supabase (without filtering by event_status)
 async function getStaffLeaves(ghlId) {
   if (!ghlId) return {};
 
   const { data, error } = await supabase
     .from("staff_leaves")
     .select("*")
-    .eq("ghl_id", ghlId)
-    .eq("event_status", "Upcoming");
+    .eq("ghl_id", ghlId); // Removed event_status filter
 
   if (error) {
     console.error("❌ Error loading staff_leaves:", error.message);
@@ -169,7 +168,7 @@ exports.handler = async function (event) {
         const leaveInfo = staffLeaves[dateStr];
 
         if (leaveInfo && leaveInfo.leave_type === "Full Day") {
-          return;
+          return; // skip the entire day
         }
 
         const validSlots = value.slots
