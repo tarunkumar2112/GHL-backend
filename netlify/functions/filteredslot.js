@@ -36,6 +36,12 @@ function timeToNumberInTZ(date, tz = "America/Denver") {
   return hour * 100 + minute;
 }
 
+// ✅ Format date string to 'YYYY-MM-DD'
+function formatDate(dateStr) {
+  const d = new Date(dateStr);
+  return d.toISOString().split("T")[0];
+}
+
 // ✅ Load business hours from Supabase
 async function getBusinessHours() {
   const { data, error } = await supabase.from("business_hours").select("*");
@@ -61,7 +67,7 @@ async function getBusinessHours() {
   return hours;
 }
 
-// ✅ Load staff leaves from Supabase with proper time zone handling
+// ✅ Load staff leaves from Supabase with proper time zone handling and normalized dates
 async function getStaffLeaves(ghlId) {
   if (!ghlId) return {};
 
@@ -77,7 +83,8 @@ async function getStaffLeaves(ghlId) {
 
   const leaves = {};
   data.forEach((row) => {
-    const dateStr = row.unavailable_date;
+    const dateStr = formatDate(row.unavailable_date);
+
     let startTimeNum = null;
     let endTimeNum = null;
 
@@ -174,10 +181,11 @@ exports.handler = async function (event) {
 
         if (!businessRule || !businessRule.is_open) return;
 
-        const leaveInfo = staffLeaves[dateStr];
+        const formattedDate = formatDate(dateStr);
+        const leaveInfo = staffLeaves[formattedDate];
 
         if (leaveInfo && leaveInfo.leave_type === "Full Day") {
-          return; // skip the entire day
+          return; // skip entire day
         }
 
         const validSlots = value.slots
