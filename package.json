@@ -10,6 +10,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@glideapps/tables": "^1.0.21",
     "@supabase/supabase-js": "^2.56.0",
     "axios": "^1.10.0",
     "date-fns": "^4.1.0",
