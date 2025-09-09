@@ -87,21 +87,36 @@ function timeToMinutes(timeStr) {
   return hours * 60 + minutes;
 }
 
-// ✅ Check if a slot time falls within staff leave period
+// ✅ Check if a slot time falls within staff leave period (FIXED)
 function isSlotDuringLeave(slotTime, leave) {
   const slotDate = new Date(slotTime);
-  const leaveDate = new Date(leave.unavailable_date);
+  const leaveDate = new Date(leave.unavailable_date + 'T00:00:00');
   
   // Check if same date
   if (slotDate.toDateString() !== leaveDate.toDateString()) {
     return false;
   }
 
-  const slotMinutes = timeToNumberInTZ(slotTime, "America/Denver");
-  const slotTimeInMinutes = Math.floor(slotMinutes / 100) * 60 + (slotMinutes % 100);
+  // Convert slot time to Denver time in minutes since midnight
+  const slotTimeDenver = slotDate.toLocaleString("en-US", {
+    timeZone: "America/Denver",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
   
-  const leaveStart = timeToMinutes(leave.start_time?.split('+')[0]);
-  const leaveEnd = timeToMinutes(leave.end_time?.split('+')[0]);
+  const [slotHour, slotMinute] = slotTimeDenver.split(':').map(Number);
+  const slotMinutes = slotHour * 60 + slotMinute;
+
+  // Convert leave times to minutes since midnight (handle timezone offset)
+  const leaveStartTime = leave.start_time.split('+')[0]; // Remove timezone offset
+  const leaveEndTime = leave.end_time.split('+')[0]; // Remove timezone offset
+  
+  const [leaveStartHour, leaveStartMinute] = leaveStartTime.split(':').map(Number);
+  const [leaveEndHour, leaveEndMinute] = leaveEndTime.split(':').map(Number);
+  
+  const leaveStartMinutes = leaveStartHour * 60 + leaveStartMinute;
+  const leaveEndMinutes = leaveEndHour * 60 + leaveEndMinute;
 
   // For full day leaves, exclude all slots
   if (leave.leave_type === 'Full Day') {
@@ -109,9 +124,8 @@ function isSlotDuringLeave(slotTime, leave) {
   }
 
   // For half day leaves, check if slot falls within leave time range
-  return slotTimeInMinutes >= leaveStart && slotTimeInMinutes <= leaveEnd;
+  return slotMinutes >= leaveStartMinutes && slotMinutes <= leaveEndMinutes;
 }
-
 exports.handler = async function (event) {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
