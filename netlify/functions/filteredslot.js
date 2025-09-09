@@ -36,13 +36,7 @@ function timeToNumberInTZ(date, tz = "America/Denver") {
   return hour * 100 + minute;
 }
 
-// ✅ Format date string to 'YYYY-MM-DD' in Denver timezone
-function formatDate(dateStr) {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-CA", { timeZone: "America/Denver" });
-}
-
-// ✅ Load business hours from Supabase
+// ✅ Load business hours from Supabase/Airtable sync
 async function getBusinessHours() {
   const { data, error } = await supabase.from("business_hours").select("*");
 
@@ -51,6 +45,7 @@ async function getBusinessHours() {
     throw error;
   }
 
+  // Map day_of_week → { is_open, start, end }
   const hours = {};
   data.forEach((row) => {
     hours[row.day_of_week] = {
@@ -67,134 +62,56 @@ async function getBusinessHours() {
   return hours;
 }
 
-// ✅ Load staff leaves from Supabase with timezone handling
-async function getStaffLeaves(ghlId) {
-  if (!ghlId) return {};
+// ✅ Fetch staff leaves from Supabase for a specific user
+async function getStaffLeaves(userId) {
+  if (!userId) return [];
 
   const { data, error } = await supabase
     .from("staff_leaves")
     .select("*")
-    .eq("ghl_id", ghlId);
+    .eq("ghl_id", userId)
+    .gte("unavailable_date", new Date().toISOString().split("T")[0]); // Only future leaves
 
   if (error) {
     console.error("❌ Error loading staff_leaves:", error.message);
     throw error;
   }
 
-  const leaves = {};
-  data.forEach((row) => {
-    const dateStr = formatDate(row.unavailable_date);
-
-    let startTimeNum = null;
-    let endTimeNum = null;
-
-    if (row.start_time && row.leave_type === "Half Day") {
-      const startDate = new Date(row.start_time);
-      startTimeNum = timeToNumberInTZ(startDate, "America/Denver");
-    }
-
-    if (row.end_time && row.leave_type === "Half Day") {
-      const endDate = new Date(row.end_time);
-      endTimeNum = timeToNumberInTZ(endDate, "America/Denver");
-    }
-
-    leaves[dateStr] = {
-      leave_type: row.leave_type,
-      start_time: startTimeNum,
-      end_time: endTimeNum,
-    };
-  });
-
-  console.log("Staff Leaves Loaded:", leaves);
-  return leaves;
+  return data || [];
 }
 
-// ✅ Filter slots considering business hours and staff leaves
-function filterSlots(slotsData, businessHours, staffLeaves) {
-  const filtered = {};
-
-  Object.entries(slotsData).forEach(([dateStr, value]) => {
-    if (dateStr === "traceId" || !value.slots?.length) return;
-
-    const d = new Date(dateStr);
-    const dayOfWeek = d.getDay();
-    const businessRule = businessHours[dayOfWeek];
-
-    if (!businessRule || !businessRule.is_open) return;
-
-    const formattedDate = formatDate(dateStr);
-    const leaveInfo = staffLeaves[formattedDate];
-
-    // Skip full-day leave
-    if (leaveInfo && leaveInfo.leave_type === "Full Day") return;
-
-    const validSlots = value.slots
-      .map((slotStr) => {
-        // Convert slot string like "09:00 AM" → Date object in Denver TZ
-        const [time, meridian] = slotStr.split(" ");
-        const [hourStr, minStr] = time.split(":");
-        let hour = Number(hourStr);
-        const minute = Number(minStr);
-        if (meridian === "PM" && hour !== 12) hour += 12;
-        if (meridian === "AM" && hour === 12) hour = 0;
-
-        const slotDate = new Date(dateStr);
-        slotDate.setHours(hour, minute, 0, 0);
-        return slotDate;
-      })
-      .filter((dt) => {
-        const num = timeToNumberInTZ(dt, "America/Denver");
-
-        // Outside business hours
-        if (num < businessRule.start || num > businessRule.end) return false;
-
-        // Half-day leave filtering (exclusive end)
-        if (leaveInfo && leaveInfo.leave_type === "Half Day") {
-          if (num >= leaveInfo.start_time && num < leaveInfo.end_time) return false;
-        }
-
-        return true;
-      })
-      .map((dt) =>
-        dt.toLocaleTimeString("en-US", {
-          timeZone: "America/Denver",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-        })
-      );
-
-    if (validSlots.length > 0) {
-      filtered[dateStr] = validSlots;
-    }
-  });
-
-  return filtered;
+// ✅ Convert time string to minutes since midnight
+function timeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return hours * 60 + minutes;
 }
 
-// ✅ Get day range (start & end timestamps)
-const getDayRange = (day) => ({
-  start: new Date(
-    day.getFullYear(),
-    day.getMonth(),
-    day.getDate(),
-    0,
-    0,
-    0,
-    0
-  ).getTime(),
-  end: new Date(
-    day.getFullYear(),
-    day.getMonth(),
-    day.getDate(),
-    23,
-    59,
-    59,
-    999
-  ).getTime(),
-});
+// ✅ Check if a slot time falls within staff leave period
+function isSlotDuringLeave(slotTime, leave) {
+  const slotDate = new Date(slotTime);
+  const leaveDate = new Date(leave.unavailable_date);
+  
+  // Check if same date
+  if (slotDate.toDateString() !== leaveDate.toDateString()) {
+    return false;
+  }
 
-// 🚀 Handler
+  const slotMinutes = timeToNumberInTZ(slotTime, "America/Denver");
+  const slotTimeInMinutes = Math.floor(slotMinutes / 100) * 60 + (slotMinutes % 100);
+  
+  const leaveStart = timeToMinutes(leave.start_time?.split('+')[0]);
+  const leaveEnd = timeToMinutes(leave.end_time?.split('+')[0]);
+
+  // For full day leaves, exclude all slots
+  if (leave.leave_type === 'Full Day') {
+    return true;
+  }
+
+  // For half day leaves, check if slot falls within leave time range
+  return slotTimeInMinutes >= leaveStart && slotTimeInMinutes <= leaveEnd;
+}
+
 exports.handler = async function (event) {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -216,7 +133,7 @@ exports.handler = async function (event) {
       };
     }
 
-    const { calendarId, userId, date, ghlId } = event.queryStringParameters || {};
+    const { calendarId, userId, date } = event.queryStringParameters || {};
     if (!calendarId) {
       return {
         statusCode: 400,
@@ -225,11 +142,13 @@ exports.handler = async function (event) {
       };
     }
 
-    const [businessHours, staffLeaves] = await Promise.all([
-      getBusinessHours(),
-      getStaffLeaves(ghlId),
-    ]);
+    // Load business hours from Supabase
+    const businessHours = await getBusinessHours();
+    
+    // Load staff leaves if userId is provided
+    const staffLeaves = userId ? await getStaffLeaves(userId) : [];
 
+    // Fetch slots from GHL
     const fetchSlots = async (start, end) => {
       let url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${end}`;
       if (userId) url += `&userId=${userId}`;
@@ -241,11 +160,84 @@ exports.handler = async function (event) {
       return response.data;
     };
 
+    // ✅ Filter slots against business hours and staff leaves
+    const filterSlots = (slotsData) => {
+      const filtered = {};
+      Object.entries(slotsData).forEach(([dateStr, value]) => {
+        if (dateStr === "traceId" || !value.slots?.length) return;
+
+        const d = new Date(dateStr);
+        const dayOfWeek = d.getDay(); // 0=Sun, 6=Sat
+        const rule = businessHours[dayOfWeek];
+
+        if (!rule || !rule.is_open) return;
+
+        const validSlots = value.slots
+          .map((slot) => new Date(slot))
+          .filter((dt) => {
+            // Filter by business hours
+            const num = timeToNumberInTZ(dt, "America/Denver");
+            const withinBusinessHours = num >= rule.start && num <= rule.end;
+            
+            if (!withinBusinessHours) return false;
+            
+            // Filter by staff leaves (only if userId is provided and there are leaves)
+            if (userId && staffLeaves.length > 0) {
+              const isDuringLeave = staffLeaves.some(leave => 
+                isSlotDuringLeave(dt, leave)
+              );
+              return !isDuringLeave; // Exclude slots during leave
+            }
+            
+            return true;
+          })
+          .map((dt) =>
+            dt.toLocaleString("en-US", {
+              timeZone: "America/Denver",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+            })
+          );
+
+        if (validSlots.length > 0) {
+          filtered[dateStr] = validSlots;
+        }
+      });
+      return filtered;
+    };
+
+    // Build date range
+    const getDayRange = (day) => ({
+      start: new Date(
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate(),
+        0,
+        0,
+        0,
+        0
+      ).getTime(),
+      end: new Date(
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate(),
+        23,
+        59,
+        59,
+        999
+      ).getTime(),
+    });
+
     let startDate = new Date();
     if (date) {
       const parts = date.split("-");
       if (parts.length === 3) {
-        startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        startDate = new Date(
+          Number(parts[0]),
+          Number(parts[1]) - 1,
+          Number(parts[2])
+        );
       }
     }
 
@@ -261,19 +253,14 @@ exports.handler = async function (event) {
     const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
     const slotsData = await fetchSlots(startOfRange, endOfRange);
-    const filtered = filterSlots(slotsData, businessHours, staffLeaves);
+    const filtered = filterSlots(slotsData);
 
     const responseData = {
       calendarId,
-      userId,
-      ghlId,
       activeDay: "allDays",
       startDate: startDate.toISOString().split("T")[0],
       slots: filtered,
-      filters: {
-        businessHours: Object.keys(businessHours).length > 0,
-        staffLeaves: Object.keys(staffLeaves).length > 0,
-      },
+      staffLeavesCount: staffLeaves.length // For debugging
     };
 
     return {
@@ -282,12 +269,12 @@ exports.handler = async function (event) {
       body: JSON.stringify(responseData),
     };
   } catch (err) {
-    console.error("❌ Error in FilteredSlots:", err.response?.data || err.message);
+    console.error("❌ Error in BusinessSlots:", err.response?.data || err.message);
     return {
       statusCode: err.response?.status || 500,
       headers: corsHeaders,
       body: JSON.stringify({
-        error: "Failed to fetch filtered slots",
+        error: "Failed to fetch business slots",
         details: err.response?.data || err.message,
       }),
     };
