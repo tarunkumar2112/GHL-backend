@@ -4,17 +4,17 @@ const glide = require("@glideapps/tables");
 
 // 🔹 Glide table config
 const tradingTable = glide.table({
-  token: process.env.GLIDE_API_KEY, // 🔑 move token into Netlify env
+  token: process.env.GLIDE_API_KEY,
   app: process.env.GLIDE_APP_ID,
   table: process.env.GLIDE_TABLE_ID,
   columns: {
-    dayName: { type: "string", name: "Xpoal" },
-    dayStart: { type: "number", name: "wcwmd" },
-    dayEnd: { type: "number", name: "22Jaw" },
+    dayName: { type: "string", name: "Xpoal" }, // Weekday name
+    dayStart: { type: "number", name: "wcwmd" }, // HHMM start
+    dayEnd: { type: "number", name: "22Jaw" },   // HHMM end
   },
 });
 
-// 🔄 Retry helper
+// 🔄 Retry helper for GHL requests
 async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   try {
     return await axios.get(url, { headers });
@@ -28,7 +28,7 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// 🔹 Convert JS Date → HHMM number
+// 🔹 Convert JS Date → HHMM number (e.g., 9:30 → 930)
 function timeToNumber(date) {
   return date.getHours() * 100 + date.getMinutes();
 }
@@ -85,7 +85,7 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    // 🔹 Format + filter slots by trading rules
+    // 🔹 Format + filter slots by business hours
     const filterSlots = (slotsData) => {
       const filtered = {};
       Object.entries(slotsData).forEach(([dateStr, value]) => {
@@ -94,7 +94,7 @@ exports.handler = async function (event) {
         const d = new Date(dateStr);
         const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
         const rule = tradingHours[dayName];
-        if (!rule) return;
+        if (!rule) return; // closed that day
 
         const validSlots = value.slots
           .map((slot) => new Date(slot))
@@ -104,7 +104,7 @@ exports.handler = async function (event) {
           })
           .map((dt) =>
             dt.toLocaleString("en-US", {
-              timeZone: "America/Denver",
+              timeZone: "America/Denver", // adjust timezone
               hour: "2-digit",
               minute: "2-digit",
               hour12: true,
@@ -124,19 +124,13 @@ exports.handler = async function (event) {
         day.getFullYear(),
         day.getMonth(),
         day.getDate(),
-        0,
-        0,
-        0,
-        0
+        0, 0, 0, 0
       ).getTime(),
       end: new Date(
         day.getFullYear(),
         day.getMonth(),
         day.getDate(),
-        23,
-        59,
-        59,
-        999
+        23, 59, 59, 999
       ).getTime(),
     });
 
@@ -161,6 +155,7 @@ exports.handler = async function (event) {
     const { start: startOfRange } = getDayRange(daysToCheck[0]);
     const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
+    // 🔹 Get GHL slots + filter using Glide
     const slotsData = await fetchSlots(startOfRange, endOfRange);
     const filtered = filterSlots(slotsData);
 
