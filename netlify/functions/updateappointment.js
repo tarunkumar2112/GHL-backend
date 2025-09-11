@@ -37,6 +37,13 @@ exports.handler = async function (event) {
       ...(status && { appointmentStatus: status }),
     };
 
+    // If we are changing time windows, provide flags to reduce validation 400s
+    if (startTime || endTime) {
+      payload.ignoreFreeSlotValidation = true;
+      payload.ignoreDateRange = true;
+      payload.toNotify = true;
+    }
+
     // ✏️ Update appointment via API
     const response = await axios.put(
       `https://services.leadconnectorhq.com/calendars/events/appointments/${appointmentId}`,
@@ -78,15 +85,15 @@ exports.handler = async function (event) {
     };
   } catch (err) {
     const status = err.response?.status || 500;
-    const message = err.response?.data || err.message;
-    console.error("❌ Update appointment failed:", message);
+    const details = err.response?.data || err.message;
+    console.error("❌ Update appointment failed:", details);
 
     return {
       statusCode: status,
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         error: "Update failed",
-        details: message,
+        details,
       }),
     };
   }
