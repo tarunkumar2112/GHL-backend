@@ -27,7 +27,7 @@ exports.handler = async function (event) {
       };
     }
 
-    // 📝 Payload for update
+    // 📝 Start with user-provided fields
     const payload = {
       ...(title && { title }),
       ...(assignedUserId && { assignedUserId }),
@@ -36,6 +36,31 @@ exports.handler = async function (event) {
       ...(calendarId && { calendarId }),
       ...(status && { appointmentStatus: status }),
     };
+
+    // 🔎 Fetch existing appointment to fill in required fields if missing
+    try {
+      const currentRes = await axios.get(
+        `https://services.leadconnectorhq.com/calendars/events/appointments/${appointmentId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Version: "2021-04-15",
+            Accept: "application/json",
+          },
+        }
+      );
+
+      const current = currentRes.data || {};
+      if (!payload.calendarId && current.calendarId) payload.calendarId = current.calendarId;
+      if (!payload.assignedUserId && current.assignedUserId) payload.assignedUserId = current.assignedUserId;
+      if (!payload.title && current.title) payload.title = current.title;
+      if (!payload.address && current.address) payload.address = current.address;
+      if (!payload.locationId && current.locationId) payload.locationId = current.locationId;
+      if (!payload.meetingLocationType && current.meetingLocationType) payload.meetingLocationType = current.meetingLocationType;
+      if (!payload.meetingLocationId && current.meetingLocationId) payload.meetingLocationId = current.meetingLocationId;
+    } catch (prefetchErr) {
+      console.warn("⚠️ Could not prefetch appointment details:", prefetchErr.response?.data || prefetchErr.message);
+    }
 
     // If we are changing time windows, provide flags to reduce validation 400s
     if (startTime || endTime) {
