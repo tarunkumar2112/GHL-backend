@@ -17,7 +17,7 @@ exports.handler = async function (event) {
     }
 
     const params = event.queryStringParameters || {};
-    const { contactId, calendarId, assignedUserId, startTime, endTime } = params;
+    const { contactId, calendarId, assignedUserId, startTime, endTime, title } = params;
 
     if (!contactId || !calendarId || !startTime || !endTime) {
       return {
@@ -30,7 +30,7 @@ exports.handler = async function (event) {
     }
 
     const payload = {
-      title: "Booking from Restyle website",
+      title: title || "Booking from Restyle website",
       meetingLocationType: "custom",
       meetingLocationId: "custom_0",
       overrideLocationConfig: true,
