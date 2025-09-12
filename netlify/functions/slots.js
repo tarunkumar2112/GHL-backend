@@ -205,8 +205,9 @@ exports.handler = async (event) => {
           userId.replace(/I/g, '1').replace(/O/g, '0'), // I->1, O->0
           userId.replace(/1/g, 'I'), // 1->I only
           userId.replace(/I/g, '1'), // I->1 only
-          // Specific case for this user ID
-          'Bi95I1facHRlpWkOq0ydi', // The exact ID from the database
+          // Additional common character substitutions
+          userId.replace(/l/g, 'I').replace(/L/g, 'I'), // l->I, L->I
+          userId.replace(/I/g, 'l').replace(/I/g, 'L'), // I->l, I->L
         ].filter(v => v !== userId) // Remove original to avoid duplicate queries
         
         console.log(`Trying ${variations.length} variations for userId: ${userId}`)
