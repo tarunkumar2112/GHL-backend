@@ -201,10 +201,10 @@ exports.handler = async (event) => {
       // If not found, try with common typo variations (I vs 1, O vs 0)
       if (!barberData && userId) {
         const variations = [
-          userId.replace(/I/g, '1').replace(/O/g, '0'), // I->1, O->0
           userId.replace(/1/g, 'I').replace(/0/g, 'O'), // 1->I, 0->O
-          userId.replace(/I/g, '1'), // I->1 only
+          userId.replace(/I/g, '1').replace(/O/g, '0'), // I->1, O->0
           userId.replace(/1/g, 'I'), // 1->I only
+          userId.replace(/I/g, '1'), // I->1 only
         ].filter(v => v !== userId) // Remove original to avoid duplicate queries
         
         console.log(`Trying ${variations.length} variations for userId: ${userId}`)
