@@ -483,6 +483,13 @@ exports.handler = async (event) => {
       activeDay: "allDays",
       startDate: startDate.toISOString().split("T")[0],
       slots: resultSlots,
+      debug: {
+        barberFound: !!barberHours,
+        timeOffCount: timeOffRows.length,
+        timeBlockCount: timeBlockRows.length,
+        barberWeekendDays: barberWeekendDays,
+        version: "v2.0"
+      }
     }
 
     console.log(`Final result: ${Object.keys(resultSlots).length} days with slots`)
