@@ -22,8 +22,8 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// ✅ Convert a Date → HHMM in specific timezone (America/Denver)
-function timeToNumberInTZ(date, tz = "America/Denver") {
+// ✅ Convert a Date → minutes since midnight in specific timezone (America/Denver)
+function timeToMinutesInTZ(date, tz = "America/Denver") {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
     hour: "2-digit",
@@ -33,7 +33,7 @@ function timeToNumberInTZ(date, tz = "America/Denver") {
 
   const hour = Number(parts.find((p) => p.type === "hour").value);
   const minute = Number(parts.find((p) => p.type === "minute").value);
-  return hour * 100 + minute;
+  return hour * 60 + minute;
 }
 
 // ✅ Load business hours
@@ -66,14 +66,56 @@ async function getBarberHours() {
 
   const barberHours = {};
   data.forEach((row) => {
-    barberHours[row.ghl_id.trim()] = {
-      Monday: { start: Number(row["Monday/Start Value"]), end: Number(row["Monday/End Value"]) },
-      Tuesday: { start: Number(row["Tuesday/Start Value"]), end: Number(row["Tuesday/End Value"]) },
-      Wednesday: { start: Number(row["Wednesday/Start Value"]), end: Number(row["Wednesday/End Value"]) },
-      Thursday: { start: Number(row["Thursday/Start Value"]), end: Number(row["Thursday/End Value"]) },
-      Friday: { start: Number(row["Friday/Start Value"]), end: Number(row["Friday/End Value"]) },
-      Saturday: { start: Number(row["Saturday/Start Value"]), end: Number(row["Saturday/End Value"]) },
-      Sunday: { start: Number(row["Sunday/Start Value"]), end: Number(row["Sunday/End Value"]) },
+    const ghlId = row.ghl_id?.trim();
+    if (!ghlId) return;
+
+    // Parse weekend days
+    let weekendDays = [];
+    if (row.weekend_days) {
+      try {
+        const parsed = JSON.parse(row.weekend_days.replace(/'/g, '"'));
+        weekendDays = Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        console.warn(`Failed to parse weekend_days for ${ghlId}:`, row.weekend_days);
+      }
+    }
+
+    barberHours[ghlId] = {
+      Monday: { 
+        start: Number(row["Monday/Start Value"]) || 0, 
+        end: Number(row["Monday/End Value"]) || 0,
+        isWeekend: weekendDays.includes("Monday")
+      },
+      Tuesday: { 
+        start: Number(row["Tuesday/Start Value"]) || 0, 
+        end: Number(row["Tuesday/End Value"]) || 0,
+        isWeekend: weekendDays.includes("Tuesday")
+      },
+      Wednesday: { 
+        start: Number(row["Wednesday/Start Value"]) || 0, 
+        end: Number(row["Wednesday/End Value"]) || 0,
+        isWeekend: weekendDays.includes("Wednesday")
+      },
+      Thursday: { 
+        start: Number(row["Thursday/Start Value"]) || 0, 
+        end: Number(row["Thursday/End Value"]) || 0,
+        isWeekend: weekendDays.includes("Thursday")
+      },
+      Friday: { 
+        start: Number(row["Friday/Start Value"]) || 0, 
+        end: Number(row["Friday/End Value"]) || 0,
+        isWeekend: weekendDays.includes("Friday")
+      },
+      Saturday: { 
+        start: Number(row["Saturday/Start Value"]) || 0, 
+        end: Number(row["Saturday/End Value"]) || 0,
+        isWeekend: weekendDays.includes("Saturday")
+      },
+      Sunday: { 
+        start: Number(row["Sunday/Start Value"]) || 0, 
+        end: Number(row["Sunday/End Value"]) || 0,
+        isWeekend: weekendDays.includes("Sunday")
+      },
     };
   });
 
@@ -108,46 +150,63 @@ function isWithinTimeRange(slotMinutes, start, end) {
 // ✅ Check if a slot falls into time off entries
 function isInTimeOff(slotDate, slotMinutes, timeOffList, barberId) {
   return timeOffList.some((entry) => {
-    const startDate = new Date(entry["Event/Start"]);
-    const endDate = new Date(entry["Event/End"]);
-    const eventBarberId = entry.ghl_id.trim();
-
-    if (eventBarberId !== "" && eventBarberId !== barberId) {
+    const eventBarberId = entry.ghl_id?.trim();
+    
+    // If barber ID is specified in time off and doesn't match current barber, skip
+    if (eventBarberId && eventBarberId !== barberId) {
       return false;
     }
 
-    return slotDate >= startDate && slotDate < endDate;
+    // Parse dates properly
+    const startDate = new Date(entry["Event/Start"]);
+    const endDate = new Date(entry["Event/End"]);
+    
+    // Check if slot date falls within the time off period
+    const slotDateOnly = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate());
+    const startDateOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    
+    return slotDateOnly >= startDateOnly && slotDateOnly < endDateOnly;
   });
 }
 
 // ✅ Check if a slot falls into time blocks (recurring or not)
 function isInTimeBlock(slotDate, slotMinutes, timeBlocks, barberId) {
   return timeBlocks.some((block) => {
-    const blockBarberId = block.ghl_id.trim();
-    if (blockBarberId !== "" && blockBarberId !== barberId) {
+    const blockBarberId = block.ghl_id?.trim();
+    
+    // If barber ID is specified in time block and doesn't match current barber, skip
+    if (blockBarberId && blockBarberId !== barberId) {
       return false;
     }
 
+    // Check if it's a recurring block
     if (block["Block/Recurring"] === "true") {
-      const days = block["Block/Recurring Day"].split(",");
-      const daysOfWeek = days.map(d => d.trim().toLowerCase());
-      const weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+      const recurringDay = block["Block/Recurring Day"]?.trim();
+      if (!recurringDay) return false;
+      
+      const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
       const dayName = weekdays[slotDate.getDay()];
-      if (!daysOfWeek.includes(dayName)) {
+      
+      if (recurringDay !== dayName) {
         return false;
       }
     } else {
+      // Non-recurring block - check specific date
       const blockDate = new Date(block["Block/Date"]);
-      if (
-        blockDate.getFullYear() !== slotDate.getFullYear() ||
-        blockDate.getMonth() !== slotDate.getMonth() ||
-        blockDate.getDate() !== slotDate.getDate()
-      ) {
+      const slotDateOnly = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate());
+      const blockDateOnly = new Date(blockDate.getFullYear(), blockDate.getMonth(), blockDate.getDate());
+      
+      if (slotDateOnly.getTime() !== blockDateOnly.getTime()) {
         return false;
       }
     }
 
-    return isWithinTimeRange(slotMinutes, Number(block["Block/Start"]), Number(block["Block/End"]));
+    // Check if slot time falls within the blocked time range
+    const blockStart = Number(block["Block/Start"]) || 0;
+    const blockEnd = Number(block["Block/End"]) || 0;
+    
+    return isWithinTimeRange(slotMinutes, blockStart, blockEnd);
   });
 }
 
@@ -162,14 +221,14 @@ function filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlo
     const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const dayName = weekdays[dayOfWeek];
 
+    // Check business hours
     const bh = businessHours[dayOfWeek];
     if (!bh || !bh.is_open) return;
 
     const validSlots = value.slots
       .map((slot) => new Date(slot))
       .filter((dt) => {
-        const slotMinutesNum = timeToNumberInTZ(dt, "America/Denver");
-        const slotMinutes = Math.floor(slotMinutesNum / 100) * 60 + (slotMinutesNum % 100);
+        const slotMinutes = timeToMinutesInTZ(dt, "America/Denver");
 
         // Business hours check
         if (!isWithinTimeRange(slotMinutes, bh.start, bh.end)) return false;
@@ -178,8 +237,16 @@ function filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlo
           const barHours = barberHours[barberId]?.[dayName];
           if (!barHours) return false;
 
+          // Check if this is a weekend day for the barber
+          if (barHours.isWeekend) return false;
+
+          // Check barber working hours
           if (!isWithinTimeRange(slotMinutes, barHours.start, barHours.end)) return false;
+          
+          // Check time off
           if (isInTimeOff(dt, slotMinutes, timeOffList, barberId)) return false;
+          
+          // Check time blocks
           if (isInTimeBlock(dt, slotMinutes, timeBlocks, barberId)) return false;
         }
 
@@ -233,6 +300,8 @@ exports.handler = async function (event) {
       };
     }
 
+    console.log(`🔍 Processing slots request: calendarId=${calendarId}, barberId=${barberId}, date=${date}`);
+
     // Load all required data
     const [businessHours, barberHours, timeOffList, timeBlocks] = await Promise.all([
       getBusinessHours(),
@@ -240,6 +309,8 @@ exports.handler = async function (event) {
       getTimeOff(),
       getTimeBlock()
     ]);
+
+    console.log(`📊 Loaded data: businessHours=${Object.keys(businessHours).length} days, barberHours=${Object.keys(barberHours).length} barbers, timeOff=${timeOffList.length} entries, timeBlocks=${timeBlocks.length} entries`);
 
     // Prepare date range
     let startDate = new Date();
@@ -270,12 +341,20 @@ exports.handler = async function (event) {
     const { start: startOfRange } = getDayRange(daysToCheck[0]);
     const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
+    // Fetch slots from GHL API
+    const slotsUrl = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${startOfRange}&endDate=${endOfRange}${barberId ? `&userId=${barberId}` : ''}`;
+    console.log(`🌐 Fetching slots from: ${slotsUrl}`);
+    
     const slotsData = await fetchWithRetry(
-      `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${startOfRange}&endDate=${endOfRange}`,
+      slotsUrl,
       { Authorization: `Bearer ${accessToken}`, Version: "2021-04-15" }
     ).then(res => res.data);
 
+    console.log(`📅 Raw slots data keys: ${Object.keys(slotsData).filter(k => k !== 'traceId').join(', ')}`);
+
     const filtered = filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlocks, barberId);
+
+    console.log(`✅ Filtered slots for ${Object.keys(filtered).length} days`);
 
     const responseData = {
       calendarId,
