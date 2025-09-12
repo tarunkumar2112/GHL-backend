@@ -350,6 +350,7 @@ exports.handler = async (event) => {
 
       if (timeOffRows.length) {
         const beforeFilter = available.length
+        console.log(`Applying time-off filter to ${localDayKey} with ${timeOffRows.length} time-off records`)
         available = available.filter((s) => {
           const slotTime = new Date(s).getTime()
           const slotDateKey = getDenverDateKey(s)
@@ -400,8 +401,6 @@ exports.handler = async (event) => {
 
             // Check if slot date falls within time-off date range (inclusive)
             const isDateBlocked = slotDateKey >= startDateKey && slotDateKey <= endDateKey
-
-            console.log(`Time-off check: slotDateKey=${slotDateKey}, startDateKey=${startDateKey}, endDateKey=${endDateKey}, isDateBlocked=${isDateBlocked}`)
 
             if (isDateBlocked) {
               console.log(
@@ -472,11 +471,8 @@ exports.handler = async (event) => {
                 return false
               }
 
-              console.log(`Time-block check: blockDateKey=${blockDateKey}, slotDay=${slotDay}, blockStart=${blockStart}, blockEnd=${blockEnd}, slotMinutes=${m}`)
-              
               if (blockDateKey === slotDay && blockStart !== null && blockEnd !== null) {
                 const isBlocked = m >= blockStart && m <= blockEnd
-                console.log(`Time-block match: isBlocked=${isBlocked}`)
                 if (isBlocked) {
                   console.log(`Slot blocked by specific time_block: ${s} on ${blockDateKey} (${tb["Block/Name"]})`)
                 }
