@@ -195,7 +195,29 @@ exports.handler = async (event) => {
     if (userId) {
       console.log(`Fetching barber data for userId: ${userId}`)
 
-      const { data: barberData, error: barberError } = await supabase.from("barber_hours").select("*").eq("ghl_id", userId).maybeSingle()
+      // Try to find barber hours with exact match first
+      let { data: barberData, error: barberError } = await supabase.from("barber_hours").select("*").eq("ghl_id", userId).maybeSingle()
+      
+      // If not found, try with common typo variations (I vs 1, O vs 0)
+      if (!barberData && userId) {
+        const variations = [
+          userId.replace(/I/g, '1').replace(/O/g, '0'), // I->1, O->0
+          userId.replace(/1/g, 'I').replace(/0/g, 'O'), // 1->I, 0->O
+          userId.replace(/I/g, '1'), // I->1 only
+          userId.replace(/1/g, 'I'), // 1->I only
+        ].filter(v => v !== userId) // Remove original to avoid duplicate queries
+        
+        for (const variation of variations) {
+          console.log(`Trying barber hours with variation: ${variation}`)
+          const { data: altData } = await supabase.from("barber_hours").select("*").eq("ghl_id", variation).maybeSingle()
+          if (altData) {
+            barberData = altData
+            console.log(`Found barber hours with variation: ${variation}`)
+            break
+          }
+        }
+      }
+      
       barberHours = barberData || null
 
       console.log(`Found barber hours:`, barberHours ? "Yes" : "No")
