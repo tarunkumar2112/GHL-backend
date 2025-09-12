@@ -64,17 +64,29 @@ function parseWeekendDays(val) {
   if (Array.isArray(val)) return val.map(normalizeDayName)
   if (typeof val === "string") {
     try {
-      // Handle JSON string format
+      // Handle JSON string format like "{\"Sunday\"}"
       const parsed = JSON.parse(val)
       if (Array.isArray(parsed)) return parsed.map(normalizeDayName)
+      // Handle object format like {"Sunday": true} or just "Sunday"
+      if (typeof parsed === "object" && parsed !== null) {
+        return Object.keys(parsed).map(normalizeDayName)
+      }
+      if (typeof parsed === "string") {
+        return [normalizeDayName(parsed)]
+      }
     } catch (e) {
-      // Handle malformed JSON or plain string
-      const cleaned = val.replace(/^[{\\["']+|[}\\]"']+$/g, "")
+      // Handle malformed JSON - try to extract day names
+      console.log(`[v0] Parsing weekend_days manually: ${val}`)
+      // Remove brackets, quotes, backslashes and split by common separators
+      const cleaned = val.replace(/[{}[\]"\\]/g, "").trim()
       const parts = cleaned
-        .split(",")
-        .map((s) => s.replace(/["'\\s\\]]/g, "").trim())
+        .split(/[,;|]/)
+        .map((s) => s.trim())
         .filter(Boolean)
-      return parts.map(normalizeDayName)
+      if (parts.length > 0) {
+        console.log(`[v0] Extracted weekend days: ${parts}`)
+        return parts.map(normalizeDayName)
+      }
     }
   }
   return []
@@ -258,10 +270,13 @@ exports.handler = async (event) => {
 
       // barber hours
       if (barberHours) {
-        console.log(`Applying barber hours for ${dayName}`)
+        console.log(`[v0] Applying barber hours for ${dayName}`)
+        console.log(
+          `[v0] Barber weekend days check: ${dayName} in [${barberWeekendDays.join(", ")}] = ${barberWeekendDays.includes(dayName)}`,
+        )
 
         if (barberWeekendDays.includes(dayName)) {
-          console.log(`${dayName} is barber's weekend - no slots available`)
+          console.log(`[v0] ${dayName} is barber's weekend - blocking all slots`)
           available = []
         } else {
           const startKey = `${dayName}/Start Value`
@@ -298,27 +313,40 @@ exports.handler = async (event) => {
         const beforeFilter = available.length
         available = available.filter((s) => {
           const slotTime = new Date(s).getTime()
+          const slotDateKey = getDenverDateKey(s)
+
           return !timeOffRows.some((t) => {
             // Check if this time-off applies to this barber or is store-level
             const appliesTo = !t.ghl_id || (userId && t.ghl_id === userId)
             if (!appliesTo) return false
 
-            // Parse the time-off period with better date handling
-            let startTime, endTime
+            let startTime, endTime, startDateKey, endDateKey
             try {
-              startTime = new Date(t["Event/Start"]).getTime()
-              endTime = new Date(t["Event/End"]).getTime()
+              const startDate = new Date(t["Event/Start"])
+              const endDate = new Date(t["Event/End"])
+
+              startTime = startDate.getTime()
+              endTime = endDate.getTime()
+
+              // Get date keys for comparison
+              startDateKey = startDate.toLocaleDateString("sv-SE", { timeZone: "America/Denver" })
+              endDateKey = endDate.toLocaleDateString("sv-SE", { timeZone: "America/Denver" })
             } catch (e) {
               console.warn(`Invalid time_off date format:`, t["Event/Start"], t["Event/End"])
               return false
             }
 
-            // Check if slot falls within time-off period
-            const isBlocked = slotTime >= startTime && slotTime < endTime
-            if (isBlocked) {
-              console.log(`Slot blocked by time_off: ${s} (${t["Event/Name"]})`)
+            // Check if slot date falls within time-off date range (inclusive)
+            const isDateBlocked = slotDateKey >= startDateKey && slotDateKey <= endDateKey
+
+            if (isDateBlocked) {
+              console.log(
+                `Slot blocked by time_off: ${s} on ${slotDateKey} (${t["Event/Name"]} from ${startDateKey} to ${endDateKey})`,
+              )
+              return true
             }
-            return isBlocked
+
+            return false
           })
         })
         console.log(`Time-off filter: ${beforeFilter} -> ${available.length} slots`)
@@ -371,7 +399,7 @@ exports.handler = async (event) => {
               if (blockDateKey === slotDay && blockStart !== null && blockEnd !== null) {
                 const isBlocked = m >= blockStart && m <= blockEnd
                 if (isBlocked) {
-                  console.log(`Slot blocked by specific time_block: ${s} (${tb["Block/Name"]} on ${blockDateKey})`)
+                  console.log(`Slot blocked by specific time_block: ${s} on ${blockDateKey} (${tb["Block/Name"]})`)
                 }
                 return isBlocked
               }
