@@ -105,6 +105,7 @@ exports.handler = async function (event) {
       .select("*")
       .eq("is_open", true);
     if (bhError) throw new Error("Failed to fetch business hours");
+
     const businessHoursMap = {};
     businessHoursData.forEach(item => {
       businessHoursMap[item.day_of_week] = item;
@@ -112,7 +113,9 @@ exports.handler = async function (event) {
 
     // ✅ Initialize barber-related data
     let barberHoursMap = {};
+    let barberWeekends = [];
     let barberWeekendIndexes = [];
+
     if (userId) {
       const { data: barberData, error: barberError } = await supabase
         .from("barber_hours")
@@ -121,16 +124,20 @@ exports.handler = async function (event) {
         .single();
       if (barberError) throw new Error("Failed to fetch barber hours");
 
-      // Prepare barber weekend array and convert to day indexes
-      let barberWeekends = [];
+      // ✅ Correct weekend_days parsing
       if (barberData.weekend_days) {
         try {
-          barberWeekends = JSON.parse(barberData.weekend_days.replace(/'/g, '"'));
+          const corrected = barberData.weekend_days
+            .replace(/'/g, '"')
+            .replace(/{/, '[')
+            .replace(/}$/, ']');
+          barberWeekends = JSON.parse(corrected);
         } catch (e) {
           barberWeekends = [];
         }
       }
 
+      // ✅ Map weekend names to day indexes
       const dayNameToIndex = {
         "Sunday": 0,
         "Monday": 1,
@@ -142,7 +149,7 @@ exports.handler = async function (event) {
       };
       barberWeekendIndexes = barberWeekends.map(day => dayNameToIndex[day]).filter(v => v !== undefined);
 
-      // Map barber hours for each day
+      // ✅ Map barber hours for each day
       barberHoursMap = {
         0: { start: parseInt(barberData["Sunday/Start Value"]), end: parseInt(barberData["Sunday/End Value"]) },
         1: { start: parseInt(barberData["Monday/Start Value"]), end: parseInt(barberData["Monday/End Value"]) },
@@ -160,7 +167,6 @@ exports.handler = async function (event) {
       const dateKey = day.toISOString().split("T")[0];
       const dayOfWeek = day.getDay();
 
-      // Apply business hours first
       const bh = businessHoursMap[dayOfWeek];
       if (!bh) continue;
       const openTime = bh.open_time;
@@ -168,7 +174,7 @@ exports.handler = async function (event) {
 
       let validSlots = slotsData[dateKey]?.slots || [];
 
-      // Filter by business hours
+      // ✅ Apply business hours filter
       validSlots = validSlots.filter(slot => {
         const timeString = new Date(slot).toLocaleString("en-US", {
           timeZone: "America/Denver",
@@ -180,11 +186,10 @@ exports.handler = async function (event) {
         return isWithinRange(minutes, openTime, closeTime);
       });
 
-      // If userId provided → apply barber hours and weekend
+      // ✅ Apply barber hours and weekend if userId is provided
       if (userId) {
-        // ✅ Skip if it's a barber weekend
         if (barberWeekendIndexes.includes(dayOfWeek)) {
-          continue;
+          continue; // skip weekends
         }
 
         const barberHours = barberHoursMap[dayOfWeek];
@@ -192,7 +197,6 @@ exports.handler = async function (event) {
           continue; // barber off this day
         }
 
-        // Filter by barber hours
         validSlots = validSlots.filter(slot => {
           const timeString = new Date(slot).toLocaleString("en-US", {
             timeZone: "America/Denver",
