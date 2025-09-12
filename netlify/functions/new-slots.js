@@ -124,15 +124,31 @@ exports.handler = async function (event) {
         .single();
       if (barberError) throw new Error("Failed to fetch barber hours");
 
-      // ✅ Correct weekend_days parsing
+      // ✅ FIXED: Better weekend_days parsing
       if (barberData.weekend_days) {
         try {
-          const corrected = barberData.weekend_days
-            .replace(/'/g, '"')
-            .replace(/{/, '[')
-            .replace(/}$/, ']');
-          barberWeekends = JSON.parse(corrected);
+          let weekendString = barberData.weekend_days;
+          console.log("Raw weekend_days:", weekendString);
+          
+          // Handle different possible formats
+          // Remove any surrounding quotes and clean up the string
+          weekendString = weekendString.replace(/^['"]|['"]$/g, '');
+          
+          // Handle PostgreSQL array format: "{\"Saturday\",\"Sunday\"}" or "{Saturday,Sunday}"
+          if (weekendString.includes('{') && weekendString.includes('}')) {
+            // Remove the curly braces and any trailing characters
+            weekendString = weekendString.replace(/^['"]*\{/, '[').replace(/\}['"]*.*$/, ']');
+            // Fix escaped quotes
+            weekendString = weekendString.replace(/\\"/g, '"');
+          }
+          
+          // Now try to parse as JSON array
+          barberWeekends = JSON.parse(weekendString);
+          console.log("Parsed weekend days:", barberWeekends);
+          
         } catch (e) {
+          console.error("Failed to parse weekend_days:", e.message);
+          console.error("Original value:", barberData.weekend_days);
           barberWeekends = [];
         }
       }
@@ -148,16 +164,17 @@ exports.handler = async function (event) {
         "Saturday": 6
       };
       barberWeekendIndexes = barberWeekends.map(day => dayNameToIndex[day]).filter(v => v !== undefined);
+      console.log("Weekend day indexes:", barberWeekendIndexes);
 
       // ✅ Map barber hours for each day
       barberHoursMap = {
-        0: { start: parseInt(barberData["Sunday/Start Value"]), end: parseInt(barberData["Sunday/End Value"]) },
-        1: { start: parseInt(barberData["Monday/Start Value"]), end: parseInt(barberData["Monday/End Value"]) },
-        2: { start: parseInt(barberData["Tuesday/Start Value"]), end: parseInt(barberData["Tuesday/End Value"]) },
-        3: { start: parseInt(barberData["Wednesday/Start Value"]), end: parseInt(barberData["Wednesday/End Value"]) },
-        4: { start: parseInt(barberData["Thursday/Start Value"]), end: parseInt(barberData["Thursday/End Value"]) },
-        5: { start: parseInt(barberData["Friday/Start Value"]), end: parseInt(barberData["Friday/End Value"]) },
-        6: { start: parseInt(barberData["Saturday/Start Value"]), end: parseInt(barberData["Saturday/End Value"]) }
+        0: { start: parseInt(barberData["Sunday/Start Value"]) || 0, end: parseInt(barberData["Sunday/End Value"]) || 0 },
+        1: { start: parseInt(barberData["Monday/Start Value"]) || 0, end: parseInt(barberData["Monday/End Value"]) || 0 },
+        2: { start: parseInt(barberData["Tuesday/Start Value"]) || 0, end: parseInt(barberData["Tuesday/End Value"]) || 0 },
+        3: { start: parseInt(barberData["Wednesday/Start Value"]) || 0, end: parseInt(barberData["Wednesday/End Value"]) || 0 },
+        4: { start: parseInt(barberData["Thursday/Start Value"]) || 0, end: parseInt(barberData["Thursday/End Value"]) || 0 },
+        5: { start: parseInt(barberData["Friday/Start Value"]) || 0, end: parseInt(barberData["Friday/End Value"]) || 0 },
+        6: { start: parseInt(barberData["Saturday/Start Value"]) || 0, end: parseInt(barberData["Saturday/End Value"]) || 0 }
       };
     }
 
@@ -188,12 +205,15 @@ exports.handler = async function (event) {
 
       // ✅ Apply barber hours and weekend if userId is provided
       if (userId) {
+        // FIXED: Check if current day is in barber's weekend days
         if (barberWeekendIndexes.includes(dayOfWeek)) {
+          console.log(`Skipping ${dateKey} - barber weekend day (${dayOfWeek})`);
           continue; // skip weekends
         }
 
         const barberHours = barberHoursMap[dayOfWeek];
         if (!barberHours || (barberHours.start === 0 && barberHours.end === 0)) {
+          console.log(`Skipping ${dateKey} - barber not working this day (${dayOfWeek})`);
           continue; // barber off this day
         }
 
@@ -226,7 +246,12 @@ exports.handler = async function (event) {
         calendarId,
         activeDay: "allDays",
         startDate: startDate.toISOString().split("T")[0],
-        slots: filteredSlots
+        slots: filteredSlots,
+        debug: userId ? {
+          barberWeekends: barberWeekends,
+          barberWeekendIndexes: barberWeekendIndexes,
+          barberHoursMap: barberHoursMap
+        } : undefined
       })
     };
 
