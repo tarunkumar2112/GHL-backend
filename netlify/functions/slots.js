@@ -207,6 +207,7 @@ exports.handler = async (event) => {
           userId.replace(/1/g, 'I'), // 1->I only
         ].filter(v => v !== userId) // Remove original to avoid duplicate queries
         
+        console.log(`Trying ${variations.length} variations for userId: ${userId}`)
         for (const variation of variations) {
           console.log(`Trying barber hours with variation: ${variation}`)
           const { data: altData } = await supabase.from("barber_hours").select("*").eq("ghl_id", variation).maybeSingle()
