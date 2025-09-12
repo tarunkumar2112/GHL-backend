@@ -40,6 +40,16 @@ function getWeekendDays(weekendField) {
   return [];
 }
 
+// Format slot string to "hh:mm AM/PM" in Mountain Time
+function formatSlot(slot) {
+  return new Date(slot).toLocaleString("en-US", {
+    timeZone: "America/Denver",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 exports.handler = async function (event) {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -153,16 +163,19 @@ exports.handler = async function (event) {
       const minStart = Math.max(businessStart, barberStart);
       const maxEnd = Math.min(businessEnd, barberEnd);
 
-      const validSlots = slots.filter((s) => {
-        const mins = toMinutes(s);
-        return mins >= minStart && mins <= maxEnd;
-      });
+      const validSlots = slots
+        .filter((s) => {
+          const mins = toMinutes(s);
+          return mins >= minStart && mins <= maxEnd;
+        })
+        .map(formatSlot); // 🔹 format to "hh:mm AM/PM"
 
       if (validSlots.length) filtered[key] = validSlots;
     }
 
     const responseData = {
       calendarId,
+      activeDay: "allDays",
       userId: userId || null,
       startDate: startDate.toISOString().split("T")[0],
       slots: filtered,
