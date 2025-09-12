@@ -369,7 +369,9 @@ exports.handler = async (event) => {
               if (startDateStr.includes(',')) {
                 // Format: '9/17/2025, 12:00:00 AM'
                 const [datePart] = startDateStr.split(',')
-                startDate = new Date(datePart.trim())
+                // Parse as local date to avoid timezone issues
+                const [month, day, year] = datePart.trim().split('/')
+                startDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day))
               } else {
                 startDate = new Date(startDateStr)
               }
@@ -377,7 +379,9 @@ exports.handler = async (event) => {
               if (endDateStr.includes(',')) {
                 // Format: '9/18/2025, 12:00:00 AM'
                 const [datePart] = endDateStr.split(',')
-                endDate = new Date(datePart.trim())
+                // Parse as local date to avoid timezone issues
+                const [month, day, year] = datePart.trim().split('/')
+                endDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day))
               } else {
                 endDate = new Date(endDateStr)
               }
@@ -452,7 +456,9 @@ exports.handler = async (event) => {
                 if (blockDateStr.includes(',')) {
                   // Format: '7/26/2025, 12:00:00 AM'
                   const [datePart] = blockDateStr.split(',')
-                  blockDate = new Date(datePart.trim())
+                  // Parse as local date to avoid timezone issues
+                  const [month, day, year] = datePart.trim().split('/')
+                  blockDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day))
                 } else {
                   blockDate = new Date(blockDateStr)
                 }
