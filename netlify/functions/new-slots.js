@@ -112,7 +112,7 @@ exports.handler = async function (event) {
 
     // ✅ Initialize barber-related data
     let barberHoursMap = {};
-    let barberWeekends = [];
+    let barberWeekendIndexes = [];
     if (userId) {
       const { data: barberData, error: barberError } = await supabase
         .from("barber_hours")
@@ -121,7 +121,8 @@ exports.handler = async function (event) {
         .single();
       if (barberError) throw new Error("Failed to fetch barber hours");
 
-      // Prepare barber weekend array
+      // Prepare barber weekend array and convert to day indexes
+      let barberWeekends = [];
       if (barberData.weekend_days) {
         try {
           barberWeekends = JSON.parse(barberData.weekend_days.replace(/'/g, '"'));
@@ -129,6 +130,17 @@ exports.handler = async function (event) {
           barberWeekends = [];
         }
       }
+
+      const dayNameToIndex = {
+        "Sunday": 0,
+        "Monday": 1,
+        "Tuesday": 2,
+        "Wednesday": 3,
+        "Thursday": 4,
+        "Friday": 5,
+        "Saturday": 6
+      };
+      barberWeekendIndexes = barberWeekends.map(day => dayNameToIndex[day]).filter(v => v !== undefined);
 
       // Map barber hours for each day
       barberHoursMap = {
@@ -170,13 +182,13 @@ exports.handler = async function (event) {
 
       // If userId provided → apply barber hours and weekend
       if (userId) {
-        // Skip if it's a barber weekend
-        if (barberWeekends.includes(bh.Name)) {
+        // ✅ Skip if it's a barber weekend
+        if (barberWeekendIndexes.includes(dayOfWeek)) {
           continue;
         }
 
         const barberHours = barberHoursMap[dayOfWeek];
-        if (!barberHours || barberHours.start === 0 && barberHours.end === 0) {
+        if (!barberHours || (barberHours.start === 0 && barberHours.end === 0)) {
           continue; // barber off this day
         }
 
