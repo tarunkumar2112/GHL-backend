@@ -112,10 +112,12 @@ function isInTimeOff(slotDate, slotMinutes, timeOffList, barberId) {
     const endDate = new Date(entry["Event/End"]);
     const eventBarberId = entry.ghl_id.trim();
 
+    // Check if barber-specific or store-level
     if (eventBarberId !== "" && eventBarberId !== barberId) {
       return false;
     }
 
+    // Check if slot date is within time off range
     return slotDate >= startDate && slotDate < endDate;
   });
 }
@@ -158,12 +160,15 @@ function filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlo
     if (dateStr === "traceId" || !value.slots?.length) return;
 
     const d = new Date(dateStr);
-    const dayOfWeek = d.getDay();
+    const dayOfWeek = d.getDay(); // 0=Sun, 6=Sat
     const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const dayName = weekdays[dayOfWeek];
 
     const bh = businessHours[dayOfWeek];
     if (!bh || !bh.is_open) return;
+
+    const barHours = barberHours[barberId]?.[dayName];
+    if (!barHours) return;
 
     const validSlots = value.slots
       .map((slot) => new Date(slot))
@@ -171,17 +176,17 @@ function filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlo
         const slotMinutesNum = timeToNumberInTZ(dt, "America/Denver");
         const slotMinutes = Math.floor(slotMinutesNum / 100) * 60 + (slotMinutesNum % 100);
 
-        // Business hours check
+        // Check business hours
         if (!isWithinTimeRange(slotMinutes, bh.start, bh.end)) return false;
 
-        if (barberId) {
-          const barHours = barberHours[barberId]?.[dayName];
-          if (!barHours) return false;
+        // Check barber hours
+        if (!isWithinTimeRange(slotMinutes, barHours.start, barHours.end)) return false;
 
-          if (!isWithinTimeRange(slotMinutes, barHours.start, barHours.end)) return false;
-          if (isInTimeOff(dt, slotMinutes, timeOffList, barberId)) return false;
-          if (isInTimeBlock(dt, slotMinutes, timeBlocks, barberId)) return false;
-        }
+        // Check time off
+        if (isInTimeOff(dt, slotMinutes, timeOffList, barberId)) return false;
+
+        // Check time blocks
+        if (isInTimeBlock(dt, slotMinutes, timeBlocks, barberId)) return false;
 
         return true;
       })
@@ -225,11 +230,11 @@ exports.handler = async function (event) {
     }
 
     const { calendarId, barberId, date } = event.queryStringParameters || {};
-    if (!calendarId) {
+    if (!calendarId || !barberId) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: "calendarId parameter is required" }),
+        body: JSON.stringify({ error: "calendarId and barberId parameters are required" }),
       };
     }
 
@@ -279,7 +284,7 @@ exports.handler = async function (event) {
 
     const responseData = {
       calendarId,
-      barberId: barberId || null,
+      barberId,
       activeDay: "allDays",
       startDate: startDate.toISOString().split("T")[0],
       slots: filtered,
