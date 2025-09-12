@@ -39,26 +39,6 @@ const dayNames = [
   "Saturday",
 ];
 
-// ⏰ Helper: format slot in Mountain Time (ISO-like string with offset)
-function formatSlotDenver(date) {
-  const base = new Date(date);
-  const fmt = base.toLocaleString("sv-SE", {
-    timeZone: "America/Denver",
-    hour12: false,
-  });
-  const dateStr = fmt.replace(" ", "T");
-  return dateStr + getOffset("America/Denver", base);
-}
-
-// 👉 Get timezone offset like -06:00 / -07:00
-function getOffset(timeZone, date) {
-  const tzDate = new Date(date.toLocaleString("en-US", { timeZone }));
-  const offset = (date - tzDate) / (60 * 1000);
-  const sign = offset <= 0 ? "+" : "-";
-  const pad = (n) => String(Math.floor(Math.abs(n))).padStart(2, "0");
-  return sign + pad(offset / 60) + ":" + pad(offset % 60);
-}
-
 exports.handler = async function (event) {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -240,9 +220,16 @@ exports.handler = async function (event) {
         });
       });
 
-      // ✅ Format remaining slots in Mountain Time
+      // ✅ Format remaining slots as 12h AM/PM Mountain Time
       if (slots.length) {
-        filtered[dayKey] = slots.map((s) => formatSlotDenver(s));
+        filtered[dayKey] = slots.map((s) =>
+          new Date(s).toLocaleString("en-US", {
+            timeZone: "America/Denver",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+          })
+        );
       }
     }
 
