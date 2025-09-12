@@ -36,7 +36,7 @@ function getMinutesInDenver(isoString) {
   return hour * 60 + minute;
 }
 
-// Helper: get date-key (YYYY-MM-DD) in America/Denver for grouping
+// Helper: get date-key (YYYY-MM-DD) in America/Denver
 function getDenverDateKey(isoString) {
   return new Date(isoString).toLocaleDateString("sv-SE", {
     timeZone: "America/Denver",
@@ -51,7 +51,7 @@ function getDenverWeekdayName(isoString) {
   }).format(new Date(isoString));
 }
 
-// Helper: format slot as "03:15 AM" in America/Denver
+// Helper: format slot as "03:15 AM"
 function formatSlotAs12h(isoString) {
   return new Date(isoString).toLocaleString("en-US", {
     timeZone: "America/Denver",
@@ -61,7 +61,7 @@ function formatSlotAs12h(isoString) {
   });
 }
 
-// Parse weekend_days robustly (array | postgres-array-text | json-string)
+// Parse weekend_days robustly
 function parseWeekendDays(val) {
   if (!val) return [];
   if (Array.isArray(val)) return val.map(normalizeDayName);
@@ -140,11 +140,7 @@ exports.handler = async function (event) {
     if (date) {
       const parts = date.split("-");
       if (parts.length === 3) {
-        startDate = new Date(
-          Number(parts[0]),
-          Number(parts[1]) - 1,
-          Number(parts[2])
-        );
+        startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
       }
     }
 
@@ -156,18 +152,8 @@ exports.handler = async function (event) {
       daysToCheck.push(d);
     }
 
-    const startOfRange = new Date(
-      daysToCheck[0].getFullYear(),
-      daysToCheck[0].getMonth(),
-      daysToCheck[0].getDate(),
-      0,0,0,0
-    ).getTime();
-    const endOfRange = new Date(
-      daysToCheck[daysToCheck.length - 1].getFullYear(),
-      daysToCheck[daysToCheck.length - 1].getMonth(),
-      daysToCheck[daysToCheck.length - 1].getDate(),
-      23,59,59,999
-    ).getTime();
+    const startOfRange = new Date(daysToCheck[0].getFullYear(), daysToCheck[0].getMonth(), daysToCheck[0].getDate(), 0, 0, 0, 0).getTime();
+    const endOfRange = new Date(daysToCheck[daysToCheck.length - 1].getFullYear(), daysToCheck[daysToCheck.length - 1].getMonth(), daysToCheck[daysToCheck.length - 1].getDate(), 23, 59, 59, 999).getTime();
 
     const rawSlotsData = await fetchSlots(startOfRange, endOfRange);
 
@@ -179,7 +165,7 @@ exports.handler = async function (event) {
       const { data } = await supabase
         .from("barber_hours")
         .select("*")
-        .eq("ghl_id", userId)
+        .ilike("ghl_id", userId)   // case-insensitive match
         .maybeSingle();
       barberHours = data || null;
 
@@ -190,7 +176,7 @@ exports.handler = async function (event) {
       timeBlockRows = timeBlocks.data || [];
     }
 
-    // Re-group raw slots by their Denver date
+    // group raw slots
     const buckets = {};
     for (const [key, val] of Object.entries(rawSlotsData || {})) {
       if (key === "traceId") continue;
@@ -216,7 +202,7 @@ exports.handler = async function (event) {
 
       let available = slotList.slice();
 
-      // Filter by store business hours (always apply)
+      // store hours (always apply)
       const storeOpen = toNumber(bh.open_time, null);
       const storeClose = toNumber(bh.close_time, null);
       if (storeOpen !== null && storeClose !== null) {
@@ -226,7 +212,7 @@ exports.handler = async function (event) {
         });
       }
 
-      // If no userId, only apply business hours
+      // if no userId, stop here
       if (!userId) {
         if (available.length) {
           resultSlots[localDayKey] = available
@@ -236,7 +222,7 @@ exports.handler = async function (event) {
         continue;
       }
 
-      // Apply barber hours
+      // barber hours
       if (barberHours) {
         if (barberWeekendDays.includes(dayName)) {
           available = [];
@@ -264,12 +250,12 @@ exports.handler = async function (event) {
         }
       }
 
-      // Apply time_off
+      // time_off
       if (timeOffRows.length) {
         available = available.filter((s) => {
           const ts = new Date(s).getTime();
           return !timeOffRows.some((t) => {
-            const appliesTo = !t.ghl_id || (userId && t.ghl_id === userId);
+            const appliesTo = !t.ghl_id || (userId && t.ghl_id.toLowerCase() === userId.toLowerCase());
             if (!appliesTo) return false;
             const start = new Date(t["Event/Start"]).getTime();
             const end = new Date(t["Event/End"]).getTime();
@@ -278,14 +264,14 @@ exports.handler = async function (event) {
         });
       }
 
-      // Apply time_block
+      // time_block
       if (timeBlockRows.length) {
         available = available.filter((s) => {
           const m = getMinutesInDenver(s);
           const slotDay = getDenverDateKey(s);
           const slotWeekday = getDenverWeekdayName(s);
           return !timeBlockRows.some((tb) => {
-            const appliesTo = !tb.ghl_id || (userId && tb.ghl_id === userId);
+            const appliesTo = !tb.ghl_id || (userId && tb.ghl_id.toLowerCase() === userId.toLowerCase());
             if (!appliesTo) return false;
 
             const blockStart = toNumber(tb["Block/Start"], null);
