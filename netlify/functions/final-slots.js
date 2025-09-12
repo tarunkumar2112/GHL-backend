@@ -7,6 +7,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// Retry helper
 async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   try {
     return await axios.get(url, { headers });
@@ -19,10 +20,24 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// Convert "HH:mm" date string -> minutes since midnight
+// Convert Date string -> minutes since midnight
 function toMinutes(dateStr) {
   const d = new Date(dateStr);
   return d.getHours() * 60 + d.getMinutes();
+}
+
+// Normalize weekend_days field
+function getWeekendDays(weekendField) {
+  if (!weekendField) return [];
+  if (typeof weekendField === "string") {
+    try {
+      return JSON.parse(weekendField);
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(weekendField)) return weekendField;
+  return [];
 }
 
 exports.handler = async function (event) {
@@ -48,7 +63,7 @@ exports.handler = async function (event) {
       };
     }
 
-    // Helper: fetch slots from GHL
+    // Fetch slots from GHL
     const fetchSlots = async (start, end) => {
       let url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${end}`;
       if (userId) url += `&userId=${userId}`;
@@ -59,7 +74,7 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    // Build date range
+    // Build 30-day range
     let startDate = date ? new Date(date) : new Date();
     const daysToCheck = Array.from({ length: 30 }, (_, i) => {
       const d = new Date(startDate);
@@ -76,12 +91,12 @@ exports.handler = async function (event) {
 
     const slotsData = await fetchSlots(startOfRange, endOfRange);
 
-    // 🔹 Get business hours
+    // 🔹 Business hours
     const { data: businessHours } = await supabase
       .from("business_hours")
       .select("*");
 
-    // 🔹 Get barber hours if userId given
+    // 🔹 Barber hours (if filtering by barber)
     let barberHours = null;
     if (userId) {
       const { data } = await supabase
@@ -92,45 +107,41 @@ exports.handler = async function (event) {
       barberHours = data;
     }
 
-    // 🔹 Filter slots
+    // 🔹 Filtering
     const filtered = {};
     for (let d of daysToCheck) {
       const key = d.toISOString().split("T")[0];
-      const weekday = d.getDay(); // 0=Sunday
+      const weekday = d.getDay(); // 0=Sun..6=Sat
 
       let slots = slotsData[key]?.slots || [];
       if (!slots.length) continue;
 
-      // business filter
+      // Business hours for this weekday
       const bh = businessHours.find((b) => Number(b.day_of_week) === weekday);
       if (!bh || !bh.is_open) continue;
 
       const businessStart = parseInt(bh.open_time, 10);
       const businessEnd = parseInt(bh.close_time, 10);
 
-      // barber filter
+      // Barber hours (override if present)
       let barberStart = businessStart;
       let barberEnd = businessEnd;
       if (barberHours) {
-        // weekend skip
-        if (
-          barberHours.weekend_days &&
-          JSON.parse(barberHours.weekend_days.replace(/""/g, '"')).includes(
-            bh.Name
-          )
-        ) {
-          continue;
+        const weekendDays = getWeekendDays(barberHours.weekend_days);
+        if (weekendDays.includes(bh.Name)) {
+          continue; // skip whole day
         }
-        const map = [
+
+        const dayMap = [
+          "Sunday",
           "Monday",
           "Tuesday",
           "Wednesday",
           "Thursday",
           "Friday",
           "Saturday",
-          "Sunday",
         ];
-        const dayName = map[weekday];
+        const dayName = dayMap[weekday];
         const startField = `${dayName}/Start Value`;
         const endField = `${dayName}/End Value`;
         if (barberHours[startField] && barberHours[endField]) {
@@ -163,6 +174,7 @@ exports.handler = async function (event) {
       body: JSON.stringify(responseData),
     };
   } catch (err) {
+    console.error("❌ Error in final-slots:", err);
     return {
       statusCode: err.response?.status || 500,
       headers: corsHeaders,
