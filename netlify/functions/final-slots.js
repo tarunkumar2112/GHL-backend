@@ -139,6 +139,7 @@ exports.handler = async function (event) {
       if (barberHours) {
         const weekendDays = getWeekendDays(barberHours.weekend_days);
         if (weekendDays.includes(bh.Name)) {
+          console.log(`Skipping ${key} (${bh.Name}) because it's barber weekend`);
           continue; // skip whole day
         }
 
@@ -162,6 +163,21 @@ exports.handler = async function (event) {
 
       const minStart = Math.max(businessStart, barberStart);
       const maxEnd = Math.min(businessEnd, barberEnd);
+
+      // 🔹 Debug logging
+      console.log("Filter info:", {
+        date: key,
+        weekday,
+        bhName: bh.Name,
+        businessStart,
+        businessEnd,
+        barberStart,
+        barberEnd,
+        minStart,
+        maxEnd,
+        firstSlot: slots[0],
+        firstSlotMins: toMinutes(slots[0]),
+      });
 
       const validSlots = slots
         .filter((s) => {
