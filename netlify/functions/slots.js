@@ -254,6 +254,8 @@ function filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlo
       return;
     }
 
+    console.log(`📅 Processing ${dayName} (${dateStr}) with ${value.slots.length} slots`);
+    
     const validSlots = value.slots
       .map((slot) => new Date(slot))
       .filter((dt) => {
@@ -287,17 +289,25 @@ function filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlo
 
           // Check barber working hours
           if (!isWithinTimeRange(slotMinutes, barHours.start, barHours.end)) {
-            console.log(`❌ Outside barber hours: ${Math.floor(slotMinutes/60)}:${(slotMinutes%60).toString().padStart(2,'0')} not in ${barHours.start}-${barHours.end} for ${barberId}`);
+            if (value.slots.indexOf(dt.toISOString()) < 3) {
+              console.log(`❌ Outside barber hours: ${Math.floor(slotMinutes/60)}:${(slotMinutes%60).toString().padStart(2,'0')} not in ${barHours.start}-${barHours.end} for ${barberId}`);
+            }
             return false;
           }
           
           // Check time off
           if (isInTimeOff(dt, slotMinutes, timeOffList, barberId)) {
+            if (value.slots.indexOf(dt.toISOString()) < 3) {
+              console.log(`🚫 Time off match for ${barberId}`);
+            }
             return false;
           }
           
           // Check time blocks
           if (isInTimeBlock(dt, slotMinutes, timeBlocks, barberId)) {
+            if (value.slots.indexOf(dt.toISOString()) < 3) {
+              console.log(`🚧 Time block match for ${barberId}`);
+            }
             return false;
           }
         }
@@ -315,9 +325,13 @@ function filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlo
 
     if (validSlots.length > 0) {
       filtered[dateStr] = validSlots;
+      console.log(`✅ ${dayName}: ${validSlots.length} valid slots out of ${value.slots.length} total`);
+    } else {
+      console.log(`❌ ${dayName}: No valid slots (all ${value.slots.length} slots filtered out)`);
     }
   });
 
+  console.log(`📊 Filtering complete: ${Object.keys(filtered).length} days with slots out of ${Object.keys(slotsData).filter(k => k !== 'traceId').length} total days`);
   return filtered;
 }
 
@@ -372,6 +386,8 @@ exports.handler = async function (event) {
       console.log(`👤 Barber ${actualBarberId} hours:`, JSON.stringify(barberHours[actualBarberId], null, 2));
     } else if (actualBarberId) {
       console.log(`❌ No barber hours found for ${actualBarberId}. Available barbers:`, Object.keys(barberHours));
+      console.log(`🔍 Looking for exact match: "${actualBarberId}"`);
+      console.log(`🔍 Available barber IDs:`, Object.keys(barberHours).map(id => `"${id}"`));
     }
     
     // Debug time off entries
