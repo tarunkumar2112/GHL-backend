@@ -96,6 +96,46 @@ function toNumber(val, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Helper: check if a slot time falls within a time range (in minutes)
+function isSlotInTimeRange(slotMinutes, startMinutes, endMinutes) {
+  if (startMinutes === null || endMinutes === null) return true;
+  return slotMinutes >= startMinutes && slotMinutes < endMinutes;
+}
+
+// Helper: check if slot falls within time_off period
+function isSlotDuringTimeOff(slotIso, timeOffEntry) {
+  const slotTime = new Date(slotIso).getTime();
+  const startTime = new Date(timeOffEntry["Event/Start"]).getTime();
+  const endTime = new Date(timeOffEntry["Event/End"]).getTime();
+  return slotTime >= startTime && slotTime < endTime;
+}
+
+// Helper: check if slot falls within time_block period
+function isSlotDuringTimeBlock(slotIso, timeBlockEntry) {
+  const slotMinutes = getMinutesInDenver(slotIso);
+  const slotDateKey = getDenverDateKey(slotIso);
+  const slotWeekday = getDenverWeekdayName(slotIso);
+  
+  const blockStart = toNumber(timeBlockEntry["Block/Start"], null);
+  const blockEnd = toNumber(timeBlockEntry["Block/End"], null);
+  const recurringRaw = timeBlockEntry["Block/Recurring"];
+  const recurring = String(recurringRaw).toLowerCase() === "true";
+  
+  if (recurring) {
+    // Recurring block - check if it matches the weekday
+    const recurringDay = normalizeDayName(timeBlockEntry["Block/Recurring Day"]);
+    if (!recurringDay || recurringDay !== slotWeekday) return false;
+    return isSlotInTimeRange(slotMinutes, blockStart, blockEnd);
+  } else {
+    // Non-recurring block - check if it matches the specific date
+    if (!timeBlockEntry["Block/Date"]) return false;
+    const blockDateKey = new Date(timeBlockEntry["Block/Date"]).toLocaleDateString("sv-SE", { 
+      timeZone: "America/Denver" 
+    });
+    if (blockDateKey !== slotDateKey) return false;
+    return isSlotInTimeRange(slotMinutes, blockStart, blockEnd);
+  }
+}
 exports.handler = async function (event) {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -161,7 +201,7 @@ exports.handler = async function (event) {
 
     // fetch rules
     const { data: businessHours } = await supabase.from("business_hours").select("*");
-    // barber_hours (maybeSingle returns null if not found)
+    // barber_hours for specific user
     let barberHours = null;
     if (userId) {
       const { data, error } = await supabase.from("barber_hours").select("*").eq("ghl_id", userId).maybeSingle();
@@ -184,8 +224,6 @@ exports.handler = async function (event) {
 
     const resultSlots = {};
 
-    // pre-parse barber weekend days
-    const barberWeekendDays = barberHours ? parseWeekendDays(barberHours.weekend_days) : [];
 
     // iterate day by day (Denver date keys)
     for (const [localDayKey, slotList] of Object.entries(buckets)) {
@@ -203,96 +241,67 @@ exports.handler = async function (event) {
       // available slots for this day (we'll filter down slotList)
       let available = slotList.slice();
 
-      // filter by business hours (use Denver minutes)
+      // 1. Filter by business hours (use Denver minutes)
       const storeOpen = toNumber(bh.open_time, null);
       const storeClose = toNumber(bh.close_time, null);
-      if (storeOpen !== null && storeClose !== null) {
-        available = available.filter((s) => {
-          const m = getMinutesInDenver(s);
-          // allow slot if it's within [open, close). use close exclusive
-          return m >= storeOpen && m < storeClose;
-        });
-      }
+      available = available.filter((s) => {
+        const slotMinutes = getMinutesInDenver(s);
+        return isSlotInTimeRange(slotMinutes, storeOpen, storeClose);
+      });
 
-      // barber hours (only if barber present)
+      // 2. Filter by barber hours (only if barber present)
       if (barberHours) {
-        // weekend check (parsed)
+        // Check if barber has weekend days off
+        const barberWeekendDays = parseWeekendDays(barberHours.weekend_days);
         if (barberWeekendDays.includes(dayName)) {
           available = []; // barber weekend -> no slots this day
         } else {
-          // try to read start/end for that weekday from barber_hours columns
-          const startKey = `${dayName}/Start Value`;
-          const endKey = `${dayName}/End Value`;
-          const bhStart = toNumber(barberHours[startKey], null);
-          const bhEnd = toNumber(barberHours[endKey], null);
-
-          if (bhStart !== null && bhEnd !== null) {
-            available = available.filter((s) => {
-              const m = getMinutesInDenver(s);
-              return m >= bhStart && m < bhEnd;
-            });
-          } else {
-            // if barber does not have explicit hours for day => keep existing (fallback to store hours)
-          }
-
-          // optional: lunch filter if Lunch/Start and Lunch/End exist (not applied unless present)
-          const lunchStart = toNumber(barberHours["Lunch/Start"], null) || toNumber(barberHours["Lunch/Start Value"], null);
-          const lunchEnd = toNumber(barberHours["Lunch/End"], null) || toNumber(barberHours["Lunch/End Value"], null);
+          // Get barber hours for this specific day
+          const dayStartKey = `${dayName}/Start Value`;
+          const dayEndKey = `${dayName}/End Value`;
+          const barberStart = toNumber(barberHours[dayStartKey], null);
+          const barberEnd = toNumber(barberHours[dayEndKey], null);
+          
+          // Filter by barber's working hours for this day
+          available = available.filter((s) => {
+            const slotMinutes = getMinutesInDenver(s);
+            return isSlotInTimeRange(slotMinutes, barberStart, barberEnd);
+          });
+          
+          // Filter out lunch break if specified
+          const lunchStart = toNumber(barberHours["Lunch/Start"], null);
+          const lunchEnd = toNumber(barberHours["Lunch/End"], null);
           if (lunchStart !== null && lunchEnd !== null) {
             available = available.filter((s) => {
-              const m = getMinutesInDenver(s);
-              return !(m >= lunchStart && m < lunchEnd); // remove lunch window
+              const slotMinutes = getMinutesInDenver(s);
+              return !isSlotInTimeRange(slotMinutes, lunchStart, lunchEnd);
             });
           }
         }
       }
 
-      // filter by time_off (applies if no ghl_id OR ghl_id === userId)
+      // 3. Filter by time_off (both store-level and barber-level)
       available = available.filter((s) => {
-        const ts = new Date(s).getTime();
-        return !( (timeOffRows || []).some((t) => {
-          const appliesTo = !t.ghl_id || (userId && t.ghl_id === userId);
+        return !(timeOffRows || []).some((timeOff) => {
+          // Apply store-level time off (no ghl_id) or barber-specific time off
+          const appliesTo = !timeOff.ghl_id || (userId && timeOff.ghl_id === userId);
           if (!appliesTo) return false;
-          const start = new Date(t["Event/Start"]).getTime();
-          const end = new Date(t["Event/End"]).getTime();
-          return ts >= start && ts < end;
-        }) );
+          return isSlotDuringTimeOff(s, timeOff);
+        });
       });
 
-      // filter by time_block (recurring & one-time). Only apply blocks that are global or target the user
+      // 4. Filter by time_block (both recurring and one-time blocks)
       available = available.filter((s) => {
-        const m = getMinutesInDenver(s);
-        const slotDay = getDenverDateKey(s); // YYYY-MM-DD
-        const slotWeekday = getDenverWeekdayName(s);
-        return !((timeBlockRows || []).some((tb) => {
-          const appliesTo = !tb.ghl_id || (userId && tb.ghl_id === userId);
+        return !(timeBlockRows || []).some((timeBlock) => {
+          // Apply store-level blocks (no ghl_id) or barber-specific blocks
+          const appliesTo = !timeBlock.ghl_id || (userId && timeBlock.ghl_id === userId);
           if (!appliesTo) return false;
-
-          const blockStart = toNumber(tb["Block/Start"], null);
-          const blockEnd = toNumber(tb["Block/End"], null);
-          const recurringRaw = tb["Block/Recurring"];
-          const recurring = String(recurringRaw).toLowerCase() === "true";
-          if (recurring) {
-            const recurringDay = normalizeDayName(tb["Block/Recurring Day"]);
-            if (!recurringDay) return false;
-            if (recurringDay === slotWeekday && blockStart !== null && blockEnd !== null) {
-              return m >= blockStart && m < blockEnd;
-            }
-            return false;
-          } else {
-            // non-recurring: match by block date (compare Denver day)
-            if (!tb["Block/Date"]) return false;
-            const blockDateKey = new Date(tb["Block/Date"]).toLocaleDateString("sv-SE", { timeZone: "America/Denver" });
-            if (blockDateKey === slotDay && blockStart !== null && blockEnd !== null) {
-              return m >= blockStart && m < blockEnd;
-            }
-            return false;
-          }
-        }));
+          return isSlotDuringTimeBlock(s, timeBlock);
+        });
       });
 
       if (available.length) {
-        // format as 12-hour AM/PM in Denver (like workingSlots)
+        // Format as 12-hour AM/PM in Denver and sort chronologically
         resultSlots[localDayKey] = available
           .sort((a,b) => new Date(a).getTime() - new Date(b).getTime())
           .map(formatSlotAs12h);
