@@ -94,8 +94,9 @@ exports.handler = async function (event) {
       d.setDate(startDate.getDate() + i);
       return d;
     });
-    const startOfRange = daysToCheck[0].toISOString();
-    const endOfRange = daysToCheck[daysToCheck.length - 1].toISOString();
+   const startOfRange = daysToCheck[0].setHours(0, 0, 0, 0);     // ms timestamp
+const endOfRange = daysToCheck[daysToCheck.length - 1].setHours(23, 59, 59, 999); 
+
 
     const slotsData = await fetchSlots(startOfRange, endOfRange);
 
