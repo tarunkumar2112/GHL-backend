@@ -162,6 +162,7 @@ function isInTimeOff(slotDate, slotMinutes, timeOffList, barberId) {
     try {
       startDate = new Date(entry["Event/Start"]);
       endDate = new Date(entry["Event/End"]);
+      console.log(`📅 Parsed time off dates: start=${startDate.toISOString()}, end=${endDate.toISOString()}`);
     } catch (e) {
       console.warn(`Failed to parse time off dates:`, entry["Event/Start"], entry["Event/End"]);
       return false;
@@ -248,15 +249,28 @@ function filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlo
 
     // Check business hours
     const bh = businessHours[dayOfWeek];
-    if (!bh || !bh.is_open) return;
+    if (!bh || !bh.is_open) {
+      console.log(`🚫 Business closed on ${dayName} (day ${dayOfWeek})`);
+      return;
+    }
 
     const validSlots = value.slots
       .map((slot) => new Date(slot))
       .filter((dt) => {
         const slotMinutes = timeToMinutesInTZ(dt, "America/Denver");
+        
+        // Debug: Log first few slots for each day
+        if (value.slots.indexOf(dt.toISOString()) < 3) {
+          console.log(`🔍 Processing slot: ${dt.toISOString()} (${dayName}) at ${Math.floor(slotMinutes/60)}:${(slotMinutes%60).toString().padStart(2,'0')}`);
+        }
 
         // Business hours check
-        if (!isWithinTimeRange(slotMinutes, bh.start, bh.end)) return false;
+        if (!isWithinTimeRange(slotMinutes, bh.start, bh.end)) {
+          if (value.slots.indexOf(dt.toISOString()) < 3) {
+            console.log(`❌ Outside business hours: ${Math.floor(slotMinutes/60)}:${(slotMinutes%60).toString().padStart(2,'0')} not in ${bh.start}-${bh.end}`);
+          }
+          return false;
+        }
 
         if (barberId) {
           const barHours = barberHours[barberId]?.[dayName];
@@ -329,7 +343,7 @@ exports.handler = async function (event) {
       };
     }
 
-    const { calendarId, barberId, date } = event.queryStringParameters || {};
+    const { calendarId, barberId, userId, date } = event.queryStringParameters || {};
     if (!calendarId) {
       return {
         statusCode: 400,
@@ -338,7 +352,10 @@ exports.handler = async function (event) {
       };
     }
 
-    console.log(`🔍 Processing slots request: calendarId=${calendarId}, barberId=${barberId}, date=${date}`);
+    // Use userId as barberId if barberId is not provided
+    const actualBarberId = barberId || userId;
+
+    console.log(`🔍 Processing slots request: calendarId=${calendarId}, barberId=${barberId}, userId=${userId}, actualBarberId=${actualBarberId}, date=${date}`);
 
     // Load all required data
     const [businessHours, barberHours, timeOffList, timeBlocks] = await Promise.all([
@@ -351,10 +368,10 @@ exports.handler = async function (event) {
     console.log(`📊 Loaded data: businessHours=${Object.keys(businessHours).length} days, barberHours=${Object.keys(barberHours).length} barbers, timeOff=${timeOffList.length} entries, timeBlocks=${timeBlocks.length} entries`);
     
     // Debug barber hours for the specific barber
-    if (barberId && barberHours[barberId]) {
-      console.log(`👤 Barber ${barberId} hours:`, JSON.stringify(barberHours[barberId], null, 2));
-    } else if (barberId) {
-      console.log(`❌ No barber hours found for ${barberId}. Available barbers:`, Object.keys(barberHours));
+    if (actualBarberId && barberHours[actualBarberId]) {
+      console.log(`👤 Barber ${actualBarberId} hours:`, JSON.stringify(barberHours[actualBarberId], null, 2));
+    } else if (actualBarberId) {
+      console.log(`❌ No barber hours found for ${actualBarberId}. Available barbers:`, Object.keys(barberHours));
     }
     
     // Debug time off entries
@@ -408,7 +425,7 @@ exports.handler = async function (event) {
     const { end: endOfRange } = getDayRange(daysToCheck[daysToCheck.length - 1]);
 
     // Fetch slots from GHL API
-    const slotsUrl = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${startOfRange}&endDate=${endOfRange}${barberId ? `&userId=${barberId}` : ''}`;
+    const slotsUrl = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${startOfRange}&endDate=${endOfRange}${actualBarberId ? `&userId=${actualBarberId}` : ''}`;
     console.log(`🌐 Fetching slots from: ${slotsUrl}`);
     
     const slotsData = await fetchWithRetry(
@@ -418,13 +435,13 @@ exports.handler = async function (event) {
 
     console.log(`📅 Raw slots data keys: ${Object.keys(slotsData).filter(k => k !== 'traceId').join(', ')}`);
 
-    const filtered = filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlocks, barberId);
+    const filtered = filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlocks, actualBarberId);
 
     console.log(`✅ Filtered slots for ${Object.keys(filtered).length} days`);
 
     const responseData = {
       calendarId,
-      barberId: barberId || null,
+      barberId: actualBarberId || null,
       activeDay: "allDays",
       startDate: startDate.toISOString().split("T")[0],
       slots: filtered,
