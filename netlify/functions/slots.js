@@ -224,9 +224,6 @@ exports.handler = async (event) => {
       if (barberError) {
         console.error(`Error fetching barber hours:`, barberError)
       }
-      if (barberHours) {
-        console.log(`Barber hours data:`, JSON.stringify(barberHours, null, 2))
-      }
 
       const { data: timeOffData, error: timeOffError } = await supabase.from("time_off").select("*").or(`ghl_id.eq.${userId},ghl_id.is.null`)
       timeOffRows = timeOffData || []
@@ -234,9 +231,6 @@ exports.handler = async (event) => {
       console.log(`Found ${timeOffRows.length} time_off records`)
       if (timeOffError) {
         console.error(`Error fetching time_off:`, timeOffError)
-      }
-      if (timeOffRows.length > 0) {
-        console.log(`Time-off records:`, JSON.stringify(timeOffRows, null, 2))
       }
 
       const { data: timeBlockData, error: timeBlockError } = await supabase
@@ -248,9 +242,6 @@ exports.handler = async (event) => {
       console.log(`Found ${timeBlockRows.length} time_block records`)
       if (timeBlockError) {
         console.error(`Error fetching time_block:`, timeBlockError)
-      }
-      if (timeBlockRows.length > 0) {
-        console.log(`Time-block records:`, JSON.stringify(timeBlockRows, null, 2))
       }
     }
 
@@ -399,8 +390,6 @@ exports.handler = async (event) => {
             // Check if slot date falls within time-off date range (inclusive)
             const isDateBlocked = slotDateKey >= startDateKey && slotDateKey <= endDateKey
 
-            console.log(`Time-off check: slotDateKey=${slotDateKey}, startDateKey=${startDateKey}, endDateKey=${endDateKey}, isDateBlocked=${isDateBlocked}`)
-
             if (isDateBlocked) {
               console.log(
                 `Slot blocked by time_off: ${s} on ${slotDateKey} (${t["Event/Name"]} from ${startDateKey} to ${endDateKey})`,
@@ -468,11 +457,8 @@ exports.handler = async (event) => {
                 return false
               }
 
-              console.log(`Time-block check: blockDateKey=${blockDateKey}, slotDay=${slotDay}, blockStart=${blockStart}, blockEnd=${blockEnd}, slotMinutes=${m}`)
-              
               if (blockDateKey === slotDay && blockStart !== null && blockEnd !== null) {
                 const isBlocked = m >= blockStart && m <= blockEnd
-                console.log(`Time-block match: isBlocked=${isBlocked}`)
                 if (isBlocked) {
                   console.log(`Slot blocked by specific time_block: ${s} on ${blockDateKey} (${tb["Block/Name"]})`)
                 }
