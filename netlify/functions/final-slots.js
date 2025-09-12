@@ -7,7 +7,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Retry helper for 429 Too Many Requests
 async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   try {
     return await axios.get(url, { headers });
@@ -21,7 +20,6 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// Convert "hh:mm AM/PM" to minutes
 function timeToMinutes(timeString) {
   const [time, modifier] = timeString.split(" ");
   let [hours, minutes] = time.split(":").map(Number);
@@ -32,11 +30,9 @@ function timeToMinutes(timeString) {
   if (modifier === "AM" && hours === 12) {
     hours = 0;
   }
-
   return hours * 60 + minutes;
 }
 
-// Check if a slot is within time ranges
 function isWithinRange(minutes, start, end) {
   return minutes >= start && minutes <= end;
 }
@@ -62,51 +58,43 @@ exports.handler = async function (event) {
       };
     }
 
-    const { calendarId, date } = event.queryStringParameters || {};
-    if (!calendarId || !date) {
+    const { calendarId, userId, date } = event.queryStringParameters || {};
+
+    if (!calendarId) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: "calendarId and date are required" })
+        body: JSON.stringify({ error: "calendarId is required" })
       };
     }
 
-    const day = new Date(date);
-    const dayOfWeek = day.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-
-    // ✅ Fetch business hours for the day
-    const { data: businessHours, error: bhError } = await supabase
-      .from("business_hours")
-      .select("*")
-      .eq("day_of_week", dayOfWeek)
-      .eq("is_open", true);
-
-    if (bhError) {
-      throw new Error("Failed to fetch business hours");
-    }
-    if (!businessHours.length) {
-      // No business hours for this day → return empty slots
-      return {
-        statusCode: 200,
-        headers: corsHeaders,
-        body: JSON.stringify({
-          calendarId,
-          activeDay: date,
-          startDate: date,
-          slots: {}
-        })
-      };
+    // ✅ Determine the start date
+    let startDate = new Date();
+    if (date) {
+      const parts = date.split("-");
+      if (parts.length === 3) {
+        startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      }
     }
 
-    // ✅ Build the time range from business hours
-    const openTime = businessHours[0].open_time;   // in minutes
-    const closeTime = businessHours[0].close_time; // in minutes
+    const totalDays = 30;
+    const daysToCheck = [];
+    for (let i = 0; i < totalDays; i++) {
+      const d = new Date(startDate);
+      d.setDate(startDate.getDate() + i);
+      daysToCheck.push(d);
+    }
 
-    // ✅ Fetch all slots from GHL for that date
-    const fetchSlots = async () => {
-      const startOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0);
-      const endOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59);
-      const url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${startOfDay.getTime()}&endDate=${endOfDay.getTime()}`;
+    const { start: startOfRange } = {
+      start: new Date(daysToCheck[0].getFullYear(), daysToCheck[0].getMonth(), daysToCheck[0].getDate(), 0, 0, 0)
+    };
+    const { end: endOfRange } = {
+      end: new Date(daysToCheck[daysToCheck.length - 1].getFullYear(), daysToCheck[daysToCheck.length - 1].getMonth(), daysToCheck[daysToCheck.length - 1].getDate(), 23, 59, 59)
+    };
+
+    // ✅ Fetch all slots in the next 30 days
+    const fetchSlots = async (start, end) => {
+      const url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${start.getTime()}&endDate=${end.getTime()}`;
       const response = await fetchWithRetry(url, {
         Authorization: `Bearer ${accessToken}`,
         Version: "2021-04-15"
@@ -114,54 +102,66 @@ exports.handler = async function (event) {
       return response.data;
     };
 
-    const slotsData = await fetchSlots();
+    const slotsData = await fetchSlots(startOfRange, endOfRange);
 
-    // ✅ Format slots into readable times
-    const formatSlots = (slotsObj) => {
-      const formatted = {};
-      Object.entries(slotsObj).forEach(([slotDate, value]) => {
-        if (slotDate === "traceId") return;
-        if (!value.slots?.length) return;
+    // ✅ Fetch all business hours at once
+    const { data: businessHoursData, error: bhError } = await supabase
+      .from("business_hours")
+      .select("*")
+      .eq("is_open", true);
 
-        // Filter slots by business hours
-        const filteredSlots = value.slots.filter(slot => {
-          const timeString = new Date(slot).toLocaleString("en-US", {
-            timeZone: "America/Denver",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: true
-          });
-          const minutes = timeToMinutes(timeString);
-          return isWithinRange(minutes, openTime, closeTime);
+    if (bhError) throw new Error("Failed to fetch business hours");
+
+    // ✅ Map business hours by day_of_week for faster lookup
+    const businessHoursMap = {};
+    businessHoursData.forEach(item => {
+      businessHoursMap[item.day_of_week] = item;
+    });
+
+    // ✅ Format and filter slots by business hours
+    const filteredSlots = {};
+    for (const day of daysToCheck) {
+      const dateKey = day.toISOString().split("T")[0];
+      const dayOfWeek = day.getDay();
+      const bh = businessHoursMap[dayOfWeek];
+
+      if (!bh) continue; // Closed on this day
+
+      const openTime = bh.open_time;
+      const closeTime = bh.close_time;
+
+      const daySlots = slotsData[dateKey]?.slots || [];
+      const validSlots = daySlots.filter(slot => {
+        const timeString = new Date(slot).toLocaleString("en-US", {
+          timeZone: "America/Denver",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true
         });
-
-        if (filteredSlots.length > 0) {
-          formatted[slotDate] = filteredSlots.map(slot => new Date(slot).toLocaleString("en-US", {
-            timeZone: "America/Denver",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: true
-          }));
-        }
+        const minutes = timeToMinutes(timeString);
+        return isWithinRange(minutes, openTime, closeTime);
       });
-      return formatted;
-    };
 
-    const allFormatted = formatSlots(slotsData);
-
-    const responseData = {
-      calendarId,
-      activeDay: date,
-      startDate: date,
-      slots: allFormatted
-    };
+      if (validSlots.length > 0) {
+        filteredSlots[dateKey] = validSlots.map(slot => new Date(slot).toLocaleString("en-US", {
+          timeZone: "America/Denver",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true
+        }));
+      }
+    }
 
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify(responseData)
+      body: JSON.stringify({
+        calendarId,
+        activeDay: "allDays",
+        startDate: startDate.toISOString().split("T")[0],
+        slots: filteredSlots
+      })
     };
-
   } catch (err) {
     console.error("❌ Error in WorkingSlots:", err.message);
     return {
