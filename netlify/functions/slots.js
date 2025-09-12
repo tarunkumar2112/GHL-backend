@@ -408,6 +408,14 @@ exports.handler = async (event) => {
               )
               return true
             }
+            
+            // Additional check: if the slot date is exactly the end date, it should be blocked
+            if (slotDateKey === endDateKey) {
+              console.log(
+                `Slot blocked by time_off (end date): ${s} on ${slotDateKey} (${t["Event/Name"]} from ${startDateKey} to ${endDateKey})`,
+              )
+              return true
+            }
 
             return false
           })
