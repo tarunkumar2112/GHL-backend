@@ -20,7 +20,7 @@ async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   }
 }
 
-// Convert Date string -> minutes since midnight
+// Convert Date string -> minutes since midnight (Denver local)
 function toMinutes(dateStr) {
   const d = new Date(dateStr);
   return d.getHours() * 60 + d.getMinutes();
@@ -31,12 +31,15 @@ function getWeekendDays(weekendField) {
   if (!weekendField) return [];
   if (typeof weekendField === "string") {
     try {
-      return JSON.parse(weekendField);
+      return JSON.parse(weekendField).map((n) => Number(n));
     } catch {
-      return [];
+      return weekendField
+        .split(",")
+        .map((n) => Number(n.trim()))
+        .filter((n) => !isNaN(n));
     }
   }
-  if (Array.isArray(weekendField)) return weekendField;
+  if (Array.isArray(weekendField)) return weekendField.map((n) => Number(n));
   return [];
 }
 
@@ -91,20 +94,16 @@ exports.handler = async function (event) {
       d.setDate(startDate.getDate() + i);
       return d;
     });
-    const startOfRange = daysToCheck[0].setHours(0, 0, 0, 0);
-    const endOfRange = daysToCheck[daysToCheck.length - 1].setHours(
-      23,
-      59,
-      59,
-      999
-    );
+    const startOfRange = daysToCheck[0].toISOString();
+    const endOfRange = daysToCheck[daysToCheck.length - 1].toISOString();
 
     const slotsData = await fetchSlots(startOfRange, endOfRange);
 
     // 🔹 Business hours
     const { data: businessHours } = await supabase
       .from("business_hours")
-      .select("*");
+      .select("*")
+      .eq("calendar_id", calendarId);
 
     // 🔹 Barber hours (if filtering by barber)
     let barberHours = null;
@@ -112,10 +111,15 @@ exports.handler = async function (event) {
       const { data } = await supabase
         .from("barber_hours")
         .select("*")
-        .eq("ghl_id", userId)
+        .eq("user_id", userId)
+        .eq("calendar_id", calendarId)
         .single();
       barberHours = data;
     }
+
+    const weekendDays = barberHours
+      ? getWeekendDays(barberHours.weekend_days)
+      : [];
 
     // 🔹 Filtering
     const filtered = {};
@@ -127,48 +131,34 @@ exports.handler = async function (event) {
       if (!slots.length) continue;
 
       // Business hours for this weekday
-      const bh = businessHours.find((b) => Number(b.day_of_week) === weekday);
-      if (!bh || !bh.is_open) continue;
+      const bh = businessHours.find((b) => Number(b.weekday) === weekday);
+      if (!bh) continue;
 
-      const businessStart = parseInt(bh.open_time, 10);
-      const businessEnd = parseInt(bh.close_time, 10);
+      const businessStart = parseInt(bh.start_time, 10);
+      const businessEnd = parseInt(bh.end_time, 10);
 
-      // Barber hours (override if present)
+      // Skip if barber has weekend
+      if (weekendDays.includes(weekday)) {
+        console.log(`Skipping ${key} (weekday ${weekday}) because it's barber weekend`);
+        continue;
+      }
+
+      // Barber hours
       let barberStart = businessStart;
       let barberEnd = businessEnd;
       if (barberHours) {
-        const weekendDays = getWeekendDays(barberHours.weekend_days);
-        if (weekendDays.includes(bh.Name)) {
-          console.log(`Skipping ${key} (${bh.Name}) because it's barber weekend`);
-          continue; // skip whole day
-        }
-
-        const dayMap = [
-          "Sunday",
-          "Monday",
-          "Tuesday",
-          "Wednesday",
-          "Thursday",
-          "Friday",
-          "Saturday",
-        ];
-        const dayName = dayMap[weekday];
-        const startField = `${dayName}/Start Value`;
-        const endField = `${dayName}/End Value`;
-        if (barberHours[startField] && barberHours[endField]) {
-          barberStart = parseInt(barberHours[startField], 10);
-          barberEnd = parseInt(barberHours[endField], 10);
+        if (barberHours.start_time && barberHours.end_time) {
+          barberStart = parseInt(barberHours.start_time, 10);
+          barberEnd = parseInt(barberHours.end_time, 10);
         }
       }
 
       const minStart = Math.max(businessStart, barberStart);
       const maxEnd = Math.min(businessEnd, barberEnd);
 
-      // 🔹 Debug logging
       console.log("Filter info:", {
         date: key,
         weekday,
-        bhName: bh.Name,
         businessStart,
         businessEnd,
         barberStart,
@@ -184,7 +174,7 @@ exports.handler = async function (event) {
           const mins = toMinutes(s);
           return mins >= minStart && mins <= maxEnd;
         })
-        .map(formatSlot); // 🔹 format to "hh:mm AM/PM"
+        .map(formatSlot);
 
       if (validSlots.length) filtered[key] = validSlots;
     }
