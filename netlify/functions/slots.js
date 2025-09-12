@@ -157,16 +157,28 @@ function isInTimeOff(slotDate, slotMinutes, timeOffList, barberId) {
       return false;
     }
 
-    // Parse dates properly
-    const startDate = new Date(entry["Event/Start"]);
-    const endDate = new Date(entry["Event/End"]);
+    // Parse dates properly - handle different date formats
+    let startDate, endDate;
+    try {
+      startDate = new Date(entry["Event/Start"]);
+      endDate = new Date(entry["Event/End"]);
+    } catch (e) {
+      console.warn(`Failed to parse time off dates:`, entry["Event/Start"], entry["Event/End"]);
+      return false;
+    }
     
     // Check if slot date falls within the time off period
     const slotDateOnly = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate());
     const startDateOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
     const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
     
-    return slotDateOnly >= startDateOnly && slotDateOnly < endDateOnly;
+    const isInTimeOff = slotDateOnly >= startDateOnly && slotDateOnly < endDateOnly;
+    
+    if (isInTimeOff) {
+      console.log(`🚫 Time off match: ${slotDateOnly.toISOString().split('T')[0]} is in time off period ${startDateOnly.toISOString().split('T')[0]} to ${endDateOnly.toISOString().split('T')[0]} for barber ${eventBarberId}`);
+    }
+    
+    return isInTimeOff;
   });
 }
 
@@ -193,7 +205,14 @@ function isInTimeBlock(slotDate, slotMinutes, timeBlocks, barberId) {
       }
     } else {
       // Non-recurring block - check specific date
-      const blockDate = new Date(block["Block/Date"]);
+      let blockDate;
+      try {
+        blockDate = new Date(block["Block/Date"]);
+      } catch (e) {
+        console.warn(`Failed to parse block date:`, block["Block/Date"]);
+        return false;
+      }
+      
       const slotDateOnly = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate());
       const blockDateOnly = new Date(blockDate.getFullYear(), blockDate.getMonth(), blockDate.getDate());
       
@@ -206,7 +225,13 @@ function isInTimeBlock(slotDate, slotMinutes, timeBlocks, barberId) {
     const blockStart = Number(block["Block/Start"]) || 0;
     const blockEnd = Number(block["Block/End"]) || 0;
     
-    return isWithinTimeRange(slotMinutes, blockStart, blockEnd);
+    const isInBlock = isWithinTimeRange(slotMinutes, blockStart, blockEnd);
+    
+    if (isInBlock) {
+      console.log(`🚫 Time block match: ${slotDate.toISOString().split('T')[0]} at ${Math.floor(slotMinutes/60)}:${(slotMinutes%60).toString().padStart(2,'0')} is in block ${blockStart}-${blockEnd} for barber ${blockBarberId}`);
+    }
+    
+    return isInBlock;
   });
 }
 
@@ -235,19 +260,32 @@ function filterSlots(slotsData, businessHours, barberHours, timeOffList, timeBlo
 
         if (barberId) {
           const barHours = barberHours[barberId]?.[dayName];
-          if (!barHours) return false;
+          if (!barHours) {
+            console.log(`❌ No barber hours found for ${barberId} on ${dayName}`);
+            return false;
+          }
 
           // Check if this is a weekend day for the barber
-          if (barHours.isWeekend) return false;
+          if (barHours.isWeekend) {
+            console.log(`🚫 Weekend day for barber ${barberId}: ${dayName} is marked as weekend`);
+            return false;
+          }
 
           // Check barber working hours
-          if (!isWithinTimeRange(slotMinutes, barHours.start, barHours.end)) return false;
+          if (!isWithinTimeRange(slotMinutes, barHours.start, barHours.end)) {
+            console.log(`❌ Outside barber hours: ${Math.floor(slotMinutes/60)}:${(slotMinutes%60).toString().padStart(2,'0')} not in ${barHours.start}-${barHours.end} for ${barberId}`);
+            return false;
+          }
           
           // Check time off
-          if (isInTimeOff(dt, slotMinutes, timeOffList, barberId)) return false;
+          if (isInTimeOff(dt, slotMinutes, timeOffList, barberId)) {
+            return false;
+          }
           
           // Check time blocks
-          if (isInTimeBlock(dt, slotMinutes, timeBlocks, barberId)) return false;
+          if (isInTimeBlock(dt, slotMinutes, timeBlocks, barberId)) {
+            return false;
+          }
         }
 
         return true;
@@ -311,6 +349,34 @@ exports.handler = async function (event) {
     ]);
 
     console.log(`📊 Loaded data: businessHours=${Object.keys(businessHours).length} days, barberHours=${Object.keys(barberHours).length} barbers, timeOff=${timeOffList.length} entries, timeBlocks=${timeBlocks.length} entries`);
+    
+    // Debug barber hours for the specific barber
+    if (barberId && barberHours[barberId]) {
+      console.log(`👤 Barber ${barberId} hours:`, JSON.stringify(barberHours[barberId], null, 2));
+    } else if (barberId) {
+      console.log(`❌ No barber hours found for ${barberId}. Available barbers:`, Object.keys(barberHours));
+    }
+    
+    // Debug time off entries
+    if (timeOffList.length > 0) {
+      console.log(`🚫 Time off entries:`, timeOffList.map(entry => ({
+        barber: entry.ghl_id?.trim(),
+        start: entry["Event/Start"],
+        end: entry["Event/End"]
+      })));
+    }
+    
+    // Debug time blocks
+    if (timeBlocks.length > 0) {
+      console.log(`🚧 Time blocks:`, timeBlocks.map(block => ({
+        barber: block.ghl_id?.trim(),
+        recurring: block["Block/Recurring"],
+        day: block["Block/Recurring Day"],
+        date: block["Block/Date"],
+        start: block["Block/Start"],
+        end: block["Block/End"]
+      })));
+    }
 
     // Prepare date range
     let startDate = new Date();
