@@ -507,7 +507,7 @@ exports.handler = async (event) => {
         timeBlockCount: timeBlockRows.length,
         barberWeekendDays: barberWeekendDays,
         userId: userId,
-        version: "v2.2"
+        version: "v2.3"
       }
     }
 
