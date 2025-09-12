@@ -208,6 +208,7 @@ exports.handler = async (event) => {
         ].filter(v => v !== userId) // Remove original to avoid duplicate queries
         
         console.log(`Trying ${variations.length} variations for userId: ${userId}`)
+        console.log(`Variations: ${variations.join(', ')}`)
         for (const variation of variations) {
           console.log(`Trying barber hours with variation: ${variation}`)
           const { data: altData } = await supabase.from("barber_hours").select("*").eq("ghl_id", variation).maybeSingle()
@@ -215,6 +216,8 @@ exports.handler = async (event) => {
             barberData = altData
             console.log(`Found barber hours with variation: ${variation}`)
             break
+          } else {
+            console.log(`No data found for variation: ${variation}`)
           }
         }
       }
@@ -489,7 +492,8 @@ exports.handler = async (event) => {
         timeOffCount: timeOffRows.length,
         timeBlockCount: timeBlockRows.length,
         barberWeekendDays: barberWeekendDays,
-        version: "v2.0"
+        userId: userId,
+        version: "v2.1"
       }
     }
 
