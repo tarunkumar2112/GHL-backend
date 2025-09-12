@@ -396,6 +396,8 @@ exports.handler = async (event) => {
             // Check if slot date falls within time-off date range (inclusive)
             const isDateBlocked = slotDateKey >= startDateKey && slotDateKey <= endDateKey
 
+            console.log(`Time-off check: slotDateKey=${slotDateKey}, startDateKey=${startDateKey}, endDateKey=${endDateKey}, isDateBlocked=${isDateBlocked}`)
+
             if (isDateBlocked) {
               console.log(
                 `Slot blocked by time_off: ${s} on ${slotDateKey} (${t["Event/Name"]} from ${startDateKey} to ${endDateKey})`,
@@ -463,8 +465,11 @@ exports.handler = async (event) => {
                 return false
               }
 
+              console.log(`Time-block check: blockDateKey=${blockDateKey}, slotDay=${slotDay}, blockStart=${blockStart}, blockEnd=${blockEnd}, slotMinutes=${m}`)
+              
               if (blockDateKey === slotDay && blockStart !== null && blockEnd !== null) {
                 const isBlocked = m >= blockStart && m <= blockEnd
+                console.log(`Time-block match: isBlocked=${isBlocked}`)
                 if (isBlocked) {
                   console.log(`Slot blocked by specific time_block: ${s} on ${blockDateKey} (${tb["Block/Name"]})`)
                 }
