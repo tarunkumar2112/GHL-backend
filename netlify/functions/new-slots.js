@@ -68,7 +68,6 @@ exports.handler = async function (event) {
       };
     }
 
-    // ✅ Determine the start date
     let startDate = new Date();
     if (date) {
       const parts = date.split("-");
@@ -88,7 +87,6 @@ exports.handler = async function (event) {
     const startOfRange = new Date(daysToCheck[0].getFullYear(), daysToCheck[0].getMonth(), daysToCheck[0].getDate(), 0, 0, 0);
     const endOfRange = new Date(daysToCheck[daysToCheck.length - 1].getFullYear(), daysToCheck[daysToCheck.length - 1].getMonth(), daysToCheck[daysToCheck.length - 1].getDate(), 23, 59, 59);
 
-    // ✅ Fetch all slots from GHL
     const fetchSlots = async () => {
       const url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${startOfRange.getTime()}&endDate=${endOfRange.getTime()}`;
       const response = await fetchWithRetry(url, {
@@ -99,7 +97,6 @@ exports.handler = async function (event) {
     };
     const slotsData = await fetchSlots();
 
-    // ✅ Fetch business hours
     const { data: businessHoursData, error: bhError } = await supabase
       .from("business_hours")
       .select("*")
@@ -111,7 +108,6 @@ exports.handler = async function (event) {
       businessHoursMap[item.day_of_week] = item;
     });
 
-    // ✅ Initialize barber-related data
     let barberHoursMap = {};
     let barberWeekends = [];
     let barberWeekendIndexes = [];
@@ -124,36 +120,21 @@ exports.handler = async function (event) {
         .single();
       if (barberError) throw new Error("Failed to fetch barber hours");
 
-      // ✅ FIXED: Better weekend_days parsing
       if (barberData.weekend_days) {
         try {
           let weekendString = barberData.weekend_days;
-          console.log("Raw weekend_days:", weekendString);
-          
-          // Handle different possible formats
-          // Remove any surrounding quotes and clean up the string
           weekendString = weekendString.replace(/^['"]|['"]$/g, '');
-          
-          // Handle PostgreSQL array format: "{\"Saturday\",\"Sunday\"}" or "{Saturday,Sunday}"
           if (weekendString.includes('{') && weekendString.includes('}')) {
-            // Remove the curly braces and any trailing characters
             weekendString = weekendString.replace(/^['"]*\{/, '[').replace(/\}['"]*.*$/, ']');
-            // Fix escaped quotes
             weekendString = weekendString.replace(/\\"/g, '"');
           }
-          
-          // Now try to parse as JSON array
           barberWeekends = JSON.parse(weekendString);
-          console.log("Parsed weekend days:", barberWeekends);
-          
         } catch (e) {
           console.error("Failed to parse weekend_days:", e.message);
-          console.error("Original value:", barberData.weekend_days);
           barberWeekends = [];
         }
       }
 
-      // ✅ Map weekend names to day indexes
       const dayNameToIndex = {
         "Sunday": 0,
         "Monday": 1,
@@ -164,9 +145,7 @@ exports.handler = async function (event) {
         "Saturday": 6
       };
       barberWeekendIndexes = barberWeekends.map(day => dayNameToIndex[day]).filter(v => v !== undefined);
-      console.log("Weekend day indexes:", barberWeekendIndexes);
 
-      // ✅ Map barber hours for each day
       barberHoursMap = {
         0: { start: parseInt(barberData["Sunday/Start Value"]) || 0, end: parseInt(barberData["Sunday/End Value"]) || 0 },
         1: { start: parseInt(barberData["Monday/Start Value"]) || 0, end: parseInt(barberData["Monday/End Value"]) || 0 },
@@ -178,7 +157,6 @@ exports.handler = async function (event) {
       };
     }
 
-    // ✅ Filter slots day by day
     const filteredSlots = {};
     for (const day of daysToCheck) {
       const dateKey = day.toISOString().split("T")[0];
@@ -191,7 +169,6 @@ exports.handler = async function (event) {
 
       let validSlots = slotsData[dateKey]?.slots || [];
 
-      // ✅ Apply business hours filter
       validSlots = validSlots.filter(slot => {
         const timeString = new Date(slot).toLocaleString("en-US", {
           timeZone: "America/Denver",
@@ -203,18 +180,19 @@ exports.handler = async function (event) {
         return isWithinRange(minutes, openTime, closeTime);
       });
 
-      // ✅ Apply barber hours and weekend if userId is provided
       if (userId) {
-        // FIXED: Check if current day is in barber's weekend days
+        // ✅ Skip barber's weekend days
         if (barberWeekendIndexes.includes(dayOfWeek)) {
           console.log(`Skipping ${dateKey} - barber weekend day (${dayOfWeek})`);
-          continue; // skip weekends
+          continue;
         }
 
         const barberHours = barberHoursMap[dayOfWeek];
+        
+        // ✅ Skip barber's off days where start=0 and end=0
         if (!barberHours || (barberHours.start === 0 && barberHours.end === 0)) {
           console.log(`Skipping ${dateKey} - barber not working this day (${dayOfWeek})`);
-          continue; // barber off this day
+          continue;
         }
 
         validSlots = validSlots.filter(slot => {
