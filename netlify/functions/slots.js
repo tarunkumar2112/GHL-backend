@@ -64,7 +64,7 @@ function parseWeekendDays(val) {
   if (Array.isArray(val)) return val.map(normalizeDayName)
   if (typeof val === "string") {
     try {
-      // Handle JSON string format like "{\"Sunday\"}"
+      // Handle JSON string format like "{\"Sunday\"}" or "{\"Saturday\",\"Sunday\"}"
       const parsed = JSON.parse(val)
       if (Array.isArray(parsed)) return parsed.map(normalizeDayName)
       // Handle object format like {"Sunday": true} or just "Sunday"
@@ -195,23 +195,41 @@ exports.handler = async (event) => {
     if (userId) {
       console.log(`Fetching barber data for userId: ${userId}`)
 
-      const { data: barberData } = await supabase.from("barber_hours").select("*").eq("ghl_id", userId).maybeSingle()
+      const { data: barberData, error: barberError } = await supabase.from("barber_hours").select("*").eq("ghl_id", userId).maybeSingle()
       barberHours = barberData || null
 
       console.log(`Found barber hours:`, barberHours ? "Yes" : "No")
+      if (barberError) {
+        console.error(`Error fetching barber hours:`, barberError)
+      }
+      if (barberHours) {
+        console.log(`Barber hours data:`, JSON.stringify(barberHours, null, 2))
+      }
 
-      const { data: timeOffData } = await supabase.from("time_off").select("*").or(`ghl_id.eq.${userId},ghl_id.is.null`)
+      const { data: timeOffData, error: timeOffError } = await supabase.from("time_off").select("*").or(`ghl_id.eq.${userId},ghl_id.is.null`)
       timeOffRows = timeOffData || []
 
       console.log(`Found ${timeOffRows.length} time_off records`)
+      if (timeOffError) {
+        console.error(`Error fetching time_off:`, timeOffError)
+      }
+      if (timeOffRows.length > 0) {
+        console.log(`Time-off records:`, JSON.stringify(timeOffRows, null, 2))
+      }
 
-      const { data: timeBlockData } = await supabase
+      const { data: timeBlockData, error: timeBlockError } = await supabase
         .from("time_block")
         .select("*")
         .or(`ghl_id.eq.${userId},ghl_id.is.null`)
       timeBlockRows = timeBlockData || []
 
       console.log(`Found ${timeBlockRows.length} time_block records`)
+      if (timeBlockError) {
+        console.error(`Error fetching time_block:`, timeBlockError)
+      }
+      if (timeBlockRows.length > 0) {
+        console.log(`Time-block records:`, JSON.stringify(timeBlockRows, null, 2))
+      }
     }
 
     // group raw slots
@@ -322,8 +340,27 @@ exports.handler = async (event) => {
 
             let startTime, endTime, startDateKey, endDateKey
             try {
-              const startDate = new Date(t["Event/Start"])
-              const endDate = new Date(t["Event/End"])
+              // Handle different date formats like '9/17/2025, 12:00:00 AM'
+              const startDateStr = t["Event/Start"]
+              const endDateStr = t["Event/End"]
+              
+              // Parse dates more robustly
+              let startDate, endDate
+              if (startDateStr.includes(',')) {
+                // Format: '9/17/2025, 12:00:00 AM'
+                const [datePart] = startDateStr.split(',')
+                startDate = new Date(datePart.trim())
+              } else {
+                startDate = new Date(startDateStr)
+              }
+              
+              if (endDateStr.includes(',')) {
+                // Format: '9/18/2025, 12:00:00 AM'
+                const [datePart] = endDateStr.split(',')
+                endDate = new Date(datePart.trim())
+              } else {
+                endDate = new Date(endDateStr)
+              }
 
               startTime = startDate.getTime()
               endTime = endDate.getTime()
@@ -332,7 +369,7 @@ exports.handler = async (event) => {
               startDateKey = startDate.toLocaleDateString("sv-SE", { timeZone: "America/Denver" })
               endDateKey = endDate.toLocaleDateString("sv-SE", { timeZone: "America/Denver" })
             } catch (e) {
-              console.warn(`Invalid time_off date format:`, t["Event/Start"], t["Event/End"])
+              console.warn(`Invalid time_off date format:`, t["Event/Start"], t["Event/End"], e.message)
               return false
             }
 
@@ -387,12 +424,22 @@ exports.handler = async (event) => {
               // Parse the block date properly with better error handling
               let blockDateKey
               try {
-                const blockDate = new Date(tb["Block/Date"])
+                const blockDateStr = tb["Block/Date"]
+                let blockDate
+                
+                if (blockDateStr.includes(',')) {
+                  // Format: '7/26/2025, 12:00:00 AM'
+                  const [datePart] = blockDateStr.split(',')
+                  blockDate = new Date(datePart.trim())
+                } else {
+                  blockDate = new Date(blockDateStr)
+                }
+                
                 blockDateKey = blockDate.toLocaleDateString("sv-SE", {
                   timeZone: "America/Denver",
                 })
               } catch (e) {
-                console.warn(`Invalid time_block date format:`, tb["Block/Date"])
+                console.warn(`Invalid time_block date format:`, tb["Block/Date"], e.message)
                 return false
               }
 
