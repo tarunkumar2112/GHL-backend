@@ -39,6 +39,26 @@ const dayNames = [
   "Saturday",
 ];
 
+// ⏰ Helper: format slot in Mountain Time (ISO-like string with offset)
+function formatSlotDenver(date) {
+  const base = new Date(date);
+  const fmt = base.toLocaleString("sv-SE", {
+    timeZone: "America/Denver",
+    hour12: false,
+  });
+  const dateStr = fmt.replace(" ", "T");
+  return dateStr + getOffset("America/Denver", base);
+}
+
+// 👉 Get timezone offset like -06:00 / -07:00
+function getOffset(timeZone, date) {
+  const tzDate = new Date(date.toLocaleString("en-US", { timeZone }));
+  const offset = (date - tzDate) / (60 * 1000);
+  const sign = offset <= 0 ? "+" : "-";
+  const pad = (n) => String(Math.floor(Math.abs(n))).padStart(2, "0");
+  return sign + pad(offset / 60) + ":" + pad(offset % 60);
+}
+
 exports.handler = async function (event) {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -169,7 +189,6 @@ exports.handler = async function (event) {
 
       // 2️⃣ Filter by barber hours (+ weekend check)
       if (barberHours) {
-        // weekend check
         if (
           barberHours.weekend_days &&
           barberHours.weekend_days.includes(dayName)
@@ -208,12 +227,10 @@ exports.handler = async function (event) {
           const blockEnd = Number(tb["Block/End"]);
 
           if (tb["Block/Recurring"] === "true") {
-            // recurring block (day match)
             if (tb["Block/Recurring Day"] === thisDay) {
               return m >= blockStart && m <= blockEnd;
             }
           } else {
-            // one-time block (date match)
             const blockDate = new Date(tb["Block/Date"]).toDateString();
             if (new Date(s).toDateString() === blockDate) {
               return m >= blockStart && m <= blockEnd;
@@ -223,8 +240,9 @@ exports.handler = async function (event) {
         });
       });
 
+      // ✅ Format remaining slots in Mountain Time
       if (slots.length) {
-        filtered[dayKey] = slots.map(s => new Date(s).toISOString());
+        filtered[dayKey] = slots.map((s) => formatSlotDenver(s));
       }
     }
 
