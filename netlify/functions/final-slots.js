@@ -7,57 +7,45 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Retry helper
+// Retry helper for 429 Too Many Requests
 async function fetchWithRetry(url, headers, retries = 3, delay = 500) {
   try {
     return await axios.get(url, { headers });
   } catch (err) {
     if (err.response?.status === 429 && retries > 0) {
-      await new Promise((r) => setTimeout(r, delay));
+      console.warn(`429 received, retrying in ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
       return fetchWithRetry(url, headers, retries - 1, delay * 2);
     }
     throw err;
   }
 }
 
-// Convert Date string -> minutes since midnight (Denver local)
-function toMinutes(dateStr) {
-  const d = new Date(dateStr);
-  return d.getHours() * 60 + d.getMinutes();
-}
+// Convert "hh:mm AM/PM" to minutes
+function timeToMinutes(timeString) {
+  const [time, modifier] = timeString.split(" ");
+  let [hours, minutes] = time.split(":").map(Number);
 
-// Normalize weekend_days field
-function getWeekendDays(weekendField) {
-  if (!weekendField) return [];
-  if (typeof weekendField === "string") {
-    try {
-      return JSON.parse(weekendField).map((n) => Number(n));
-    } catch {
-      return weekendField
-        .split(",")
-        .map((n) => Number(n.trim()))
-        .filter((n) => !isNaN(n));
-    }
+  if (modifier === "PM" && hours !== 12) {
+    hours += 12;
   }
-  if (Array.isArray(weekendField)) return weekendField.map((n) => Number(n));
-  return [];
+  if (modifier === "AM" && hours === 12) {
+    hours = 0;
+  }
+
+  return hours * 60 + minutes;
 }
 
-// Format slot string to "hh:mm AM/PM" in Mountain Time
-function formatSlot(slot) {
-  return new Date(slot).toLocaleString("en-US", {
-    timeZone: "America/Denver",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  });
+// Check if a slot is within time ranges
+function isWithinRange(minutes, start, end) {
+  return minutes >= start && minutes <= end;
 }
 
 exports.handler = async function (event) {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization"
   };
 
   if (event.httpMethod === "OPTIONS") {
@@ -66,142 +54,123 @@ exports.handler = async function (event) {
 
   try {
     const accessToken = await getValidAccessToken();
-    const { calendarId, userId, date } = event.queryStringParameters || {};
-
-    if (!calendarId) {
+    if (!accessToken) {
       return {
-        statusCode: 400,
+        statusCode: 401,
         headers: corsHeaders,
-        body: JSON.stringify({ error: "calendarId parameter is required" }),
+        body: JSON.stringify({ error: "Access token missing" })
       };
     }
 
-    // Fetch slots from GHL
-    const fetchSlots = async (start, end) => {
-      let url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${end}`;
-      if (userId) url += `&userId=${userId}`;
+    const { calendarId, date } = event.queryStringParameters || {};
+    if (!calendarId || !date) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: "calendarId and date are required" })
+      };
+    }
+
+    const day = new Date(date);
+    const dayOfWeek = day.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+
+    // ✅ Fetch business hours for the day
+    const { data: businessHours, error: bhError } = await supabase
+      .from("business_hours")
+      .select("*")
+      .eq("day_of_week", dayOfWeek)
+      .eq("is_open", true);
+
+    if (bhError) {
+      throw new Error("Failed to fetch business hours");
+    }
+    if (!businessHours.length) {
+      // No business hours for this day → return empty slots
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          calendarId,
+          activeDay: date,
+          startDate: date,
+          slots: {}
+        })
+      };
+    }
+
+    // ✅ Build the time range from business hours
+    const openTime = businessHours[0].open_time;   // in minutes
+    const closeTime = businessHours[0].close_time; // in minutes
+
+    // ✅ Fetch all slots from GHL for that date
+    const fetchSlots = async () => {
+      const startOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0);
+      const endOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59);
+      const url = `https://services.leadconnectorhq.com/calendars/${calendarId}/free-slots?startDate=${startOfDay.getTime()}&endDate=${endOfDay.getTime()}`;
       const response = await fetchWithRetry(url, {
         Authorization: `Bearer ${accessToken}`,
-        Version: "2021-04-15",
+        Version: "2021-04-15"
       });
       return response.data;
     };
 
-    // Build 30-day range
-    let startDate = date ? new Date(date) : new Date();
-    const daysToCheck = Array.from({ length: 30 }, (_, i) => {
-      const d = new Date(startDate);
-      d.setDate(startDate.getDate() + i);
-      return d;
-    });
-   const startOfRange = daysToCheck[0].setHours(0, 0, 0, 0);     // ms timestamp
-const endOfRange = daysToCheck[daysToCheck.length - 1].setHours(23, 59, 59, 999); 
+    const slotsData = await fetchSlots();
 
+    // ✅ Format slots into readable times
+    const formatSlots = (slotsObj) => {
+      const formatted = {};
+      Object.entries(slotsObj).forEach(([slotDate, value]) => {
+        if (slotDate === "traceId") return;
+        if (!value.slots?.length) return;
 
-    const slotsData = await fetchSlots(startOfRange, endOfRange);
+        // Filter slots by business hours
+        const filteredSlots = value.slots.filter(slot => {
+          const timeString = new Date(slot).toLocaleString("en-US", {
+            timeZone: "America/Denver",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true
+          });
+          const minutes = timeToMinutes(timeString);
+          return isWithinRange(minutes, openTime, closeTime);
+        });
 
-    // 🔹 Business hours
-    const { data: businessHours } = await supabase
-      .from("business_hours")
-      .select("*")
-      .eq("calendar_id", calendarId);
-
-    // 🔹 Barber hours (if filtering by barber)
-    let barberHours = null;
-    if (userId) {
-      const { data } = await supabase
-        .from("barber_hours")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("calendar_id", calendarId)
-        .single();
-      barberHours = data;
-    }
-
-    const weekendDays = barberHours
-      ? getWeekendDays(barberHours.weekend_days)
-      : [];
-
-    // 🔹 Filtering
-    const filtered = {};
-    for (let d of daysToCheck) {
-      const key = d.toISOString().split("T")[0];
-      const weekday = d.getDay(); // 0=Sun..6=Sat
-
-      let slots = slotsData[key]?.slots || [];
-      if (!slots.length) continue;
-
-      // Business hours for this weekday
-      const bh = businessHours.find((b) => Number(b.weekday) === weekday);
-      if (!bh) continue;
-
-      const businessStart = parseInt(bh.start_time, 10);
-      const businessEnd = parseInt(bh.end_time, 10);
-
-      // Skip if barber has weekend
-      if (weekendDays.includes(weekday)) {
-        console.log(`Skipping ${key} (weekday ${weekday}) because it's barber weekend`);
-        continue;
-      }
-
-      // Barber hours
-      let barberStart = businessStart;
-      let barberEnd = businessEnd;
-      if (barberHours) {
-        if (barberHours.start_time && barberHours.end_time) {
-          barberStart = parseInt(barberHours.start_time, 10);
-          barberEnd = parseInt(barberHours.end_time, 10);
+        if (filteredSlots.length > 0) {
+          formatted[slotDate] = filteredSlots.map(slot => new Date(slot).toLocaleString("en-US", {
+            timeZone: "America/Denver",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true
+          }));
         }
-      }
-
-      const minStart = Math.max(businessStart, barberStart);
-      const maxEnd = Math.min(businessEnd, barberEnd);
-
-      console.log("Filter info:", {
-        date: key,
-        weekday,
-        businessStart,
-        businessEnd,
-        barberStart,
-        barberEnd,
-        minStart,
-        maxEnd,
-        firstSlot: slots[0],
-        firstSlotMins: toMinutes(slots[0]),
       });
+      return formatted;
+    };
 
-      const validSlots = slots
-        .filter((s) => {
-          const mins = toMinutes(s);
-          return mins >= minStart && mins <= maxEnd;
-        })
-        .map(formatSlot);
-
-      if (validSlots.length) filtered[key] = validSlots;
-    }
+    const allFormatted = formatSlots(slotsData);
 
     const responseData = {
       calendarId,
-      activeDay: "allDays",
-      userId: userId || null,
-      startDate: startDate.toISOString().split("T")[0],
-      slots: filtered,
+      activeDay: date,
+      startDate: date,
+      slots: allFormatted
     };
 
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify(responseData),
+      body: JSON.stringify(responseData)
     };
+
   } catch (err) {
-    console.error("❌ Error in final-slots:", err);
+    console.error("❌ Error in WorkingSlots:", err.message);
     return {
-      statusCode: err.response?.status || 500,
+      statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({
-        error: "Failed to fetch final slots",
-        details: err.response?.data || err.message,
-      }),
+        error: "Failed to fetch working slots",
+        details: err.message
+      })
     };
   }
 };
