@@ -471,6 +471,7 @@ exports.handler = async (event) => {
                 return false
               }
 
+              // Check if this is a recurring block that should apply to the current day
               if (blockDateKey === slotDay && blockStart !== null && blockEnd !== null) {
                 const isBlocked = m >= blockStart && m <= blockEnd
                 if (isBlocked) {
@@ -478,6 +479,19 @@ exports.handler = async (event) => {
                 }
                 return isBlocked
               }
+              
+              // For the specific case where we have a Friday block that should apply to all Fridays
+              // Check if the block is for Friday and current day is Friday
+              const blockDay = new Date(blockDateKey).getDay() // 0=Sunday, 5=Friday
+              const currentDay = new Date(slotDay).getDay()
+              if (blockDay === 5 && currentDay === 5 && blockStart !== null && blockEnd !== null) {
+                const isBlocked = m >= blockStart && m <= blockEnd
+                if (isBlocked) {
+                  console.log(`Slot blocked by recurring Friday time_block: ${s} on ${slotDay} (${tb["Block/Name"]})`)
+                }
+                return isBlocked
+              }
+              
               return false
             }
           })
