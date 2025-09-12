@@ -224,7 +224,7 @@ exports.handler = async function (event) {
       });
 
       if (slots.length) {
-        filtered[dayKey] = slots;
+        filtered[dayKey] = slots.map(s => new Date(s).toISOString());
       }
     }
 
